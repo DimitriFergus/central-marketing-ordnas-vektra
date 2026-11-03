@@ -24,8 +24,8 @@ view('dashboard', {
     el.innerHTML = `
     <div class="row mb"><div><h2 style="font-size:22px">${greet}! 👋</h2><p class="muted" style="margin:4px 0 0">${fmt.dateLong(t)} — aqui está o resumo do seu marketing.</p></div><span class="sp"></span>
       <button class="btn" onclick="editPost({date:today()})">${ico('plus')}Novo post</button>
-      <button class="btn" onclick="location.hash='#/scripts'">${ico('clapperboard')}Criar roteiro</button>
-      <button class="btn primary" onclick="location.hash='#/captions'">${ico('sparkles')}Gerar legenda</button></div>
+      <button class="btn" onclick="openScriptGenerator()">${ico('clapperboard')}Criar roteiro</button>
+      <button class="btn primary" onclick="openCaptionGenerator()">${ico('sparkles')}Gerar legenda</button></div>
 
     <div class="grid g4">
       ${kpi('calendar-check', 'Posts nos próximos 7 dias', week.length, `${week.filter(p => ['agendado', 'publicado'].includes(p.status)).length} já agendados`)}
@@ -47,10 +47,10 @@ view('dashboard', {
       <div class="grid" style="align-content:start">
         <div class="card"><h3>${ico('wallet')}Tráfego pago (último mês)</h3>
           ${lastM ? `<div class="row"><div><div class="muted small">Investimento</div><div style="font-size:20px;font-weight:800">${fmt.money(invest)}</div></div><span class="sp"></span><div><div class="muted small">CPL</div><div style="font-size:20px;font-weight:800">${cpl ? fmt.money(cpl) : '—'}</div></div><span class="sp"></span><div><div class="muted small">CAC</div><div style="font-size:20px;font-weight:800">${num(lastM.clients) ? fmt.money(invest / num(lastM.clients)) : '—'}</div></div></div>`
-          : `<p class="muted small">Registre as métricas do mês para acompanhar investimento, CPL e CAC.</p><a class="btn sm" href="#/metrics">Registrar métricas</a>`}
+          : `<p class="muted small">Registre as métricas do mês para acompanhar investimento, CPL e CAC.</p><button class="btn sm" onclick="editMetric()">Registrar métricas</button>`}
         </div>
         <div class="card"><h3>${ico('flag')}Datas e prazos que viram conteúdo</h3><div class="list">${upcomingDates(30).slice(0, 6).map(d => `<div class="li"><div style="width:46px;text-align:center"><div style="font-weight:800;font-size:17px">${parseYMD(d.date).getDate()}</div><div class="muted small">${MONTHS[parseYMD(d.date).getMonth()].slice(0, 3)}</div></div><div class="grow"><div class="t small">${esc(d.t)}</div><div class="muted small">💡 ${esc(d.pauta)}</div></div></div>`).join('') || emptyState('Sem datas nos próximos 30 dias')}</div></div>
-        <div class="card"><div class="card-head"><h3>${ico('target')}Metas</h3><span class="sp"></span><a class="btn sm" href="#/goals">Gerenciar</a></div>
+        <div class="card"><div class="card-head"><h3>${ico('target')}Metas</h3><span class="sp"></span><button class="btn sm" onclick="editGoal()">${ico('plus')}Nova meta</button></div>
           ${DB.all('goals').slice(0, 5).map(g => { const p = clamp(num(g.current) / Math.max(num(g.target), 1) * 100, 0, 100); return `<div class="mt-s"><div class="row small"><span>${esc(g.name)}</span><span class="sp"></span><strong>${fmt.num(g.current)}/${fmt.num(g.target)}</strong></div><div class="progress"><div style="width:${p}%"></div></div></div>`; }).join('') || emptyState('Defina metas para acompanhar seu progresso', 'target')}
         </div>
       </div>

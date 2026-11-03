@@ -25,14 +25,30 @@ function aiButtons(id) {
     <button type="button" class="btn sm" data-open="claude" data-for="${id}">${ico('external-link')}Abrir no Claude</button>
     <button type="button" class="btn sm" data-open="chatgpt" data-for="${id}">${ico('external-link')}Abrir no ChatGPT</button>`;
 }
-function wireAI(root, getPrompt, onResult) {
-  $$('[data-ai]', root).forEach(b => b.onclick = async () => {
-    if (!hasAI()) { location.hash = '#/brand'; state.ui.brandTab = 'ia'; save(); toast('Configure a chave da API para gerar direto aqui'); return; }
-    const old = b.innerHTML; b.disabled = true; b.innerHTML = 'Gerando…';
-    try { onResult(await aiGenerate(getPrompt(b.dataset.ai)), b.dataset.ai); }
-    catch (e) { toast('Erro: ' + e.message); console.error(e); }
-    finally { b.disabled = false; b.innerHTML = old; icons(); }
-  });
+/* Janela para configurar a chave da IA sem sair da tela */
+function aiSetupModal(then) {
+  const s = state.settings ||= {};
+  modal({ title: 'Ativar IA integrada (Claude)', saveLabel: 'Salvar e continuar',
+    body: `<p class="small">Cole sua chave da API da Anthropic para gerar textos completos direto aqui. Crie a chave em <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a>. A chave fica salva só neste navegador.</p>
+      ${F.text('aiKey', 'Chave da API (sk-ant-…)', s.aiKey || '', 'type="password"')}
+      <div class="tip small">Sem chave? Feche esta janela e use os botões <strong>Abrir no Claude</strong> ou <strong>Abrir no ChatGPT</strong>: o prompt vai pronto.</div>`,
+    onSave: d => { if (!d.aiKey.trim()) { toast('Cole a chave'); return false; } s.aiKey = d.aiKey.trim(); save(); toast('IA ativada'); if (then) setTimeout(then, 50); } });
+}
+/* Janela de "gerando…" enquanto a IA escreve */
+async function runAI(prompt, title, onUse, useLabel) {
+  if (!hasAI()) { aiSetupModal(() => runAI(prompt, title, onUse, useLabel)); return; }
+  const wait = modal({ title: title || 'Gerando com IA', body: `<div class="empty">${ico('loader')}A IA está escrevendo… isso leva de 10 a 40 segundos.</div>` });
+  try {
+    const t = await aiGenerate(prompt);
+    wait.close();
+    textModal(title || 'Resultado da IA', t, { use: onUse, useLabel, save: x => { promptBox('Salvar texto', 'Nome', title || 'Texto da IA', n => { DB.add('captions', { brand: genBrand(), title: n, text: x }); toast('Salvo em Legendas → Minhas legendas'); }); } });
+  } catch (e) {
+    wait.close(); console.error(e);
+    modal({ title: 'Não foi possível gerar', body: `<div class="tip warn">${esc(e.message)}</div><p class="small muted">Confira a chave em Marca & IA → Integrações ou use os botões Abrir no Claude / ChatGPT.</p>` });
+  }
+}
+function wireAI(root, getPrompt, onUse, useLabel) {
+  $$('[data-ai]', root).forEach(b => b.onclick = () => runAI(getPrompt(b.dataset.ai), 'Resultado da IA', onUse ? t => onUse(t, b.dataset.ai) : null, useLabel));
   $$('[data-open]', root).forEach(b => b.onclick = () => {
     const p = encodeURIComponent(getPrompt(b.dataset.for));
     window.open(b.dataset.open === 'claude' ? `https://claude.ai/new?q=${p}` : `https://chatgpt.com/?q=${p}`, '_blank');
@@ -42,7 +58,7 @@ function wireAI(root, getPrompt, onResult) {
 function temaVars(tema, brand, objetivo = 'autoridade') {
   const v = brandVars(brand);
   const t = (tema || 'contabilidade da sua empresa').trim();
-  const curto = t.split(/[:?!—\-(]/)[0].trim().split(' ').slice(0, 6).join(' ');
+  const curto = t.split(/[:?!—(]| - | x /i)[0].trim().split(' ').slice(0, 6).join(' ');
   return {
     ...v, tema: t, tema_lower: t.charAt(0).toLowerCase() + t.slice(1), tema_curto: curto.toLowerCase(),
     dor: (v.dores || '').split(',')[0].trim().toLowerCase() || 'paga imposto demais',
@@ -85,40 +101,59 @@ view('scripts', {
     const last = state.ui.lastScript || { tema: pre, estrutura: 'gcc', formato: 'reels60', objetivo: 'autoridade' };
     if (pre) last.tema = pre;
     body.innerHTML = `<div class="grid g-side-l">
-      <div class="card" style="align-self:start"><h3>${ico('settings-2')}Configuração</h3><form id="scrForm">
-        ${genBrandPicker()}
-        <label class="field"><span>Tema do conteúdo</span><input name="tema" list="topicList" value="${esc(last.tema)}" placeholder="Ex.: Pró-labore x distribuição de lucros"></label>
-        <datalist id="topicList">${TOPICS.map(t => `<option value="${esc(t.t)}">`).join('')}</datalist>
-        <button type="button" class="btn xs mb" id="rndTopic">${ico('shuffle')}Tema aleatório</button>
-        ${F.select('formato', 'Formato', Object.entries(SCRIPT_FORMATS).map(([k, v]) => [k, v.name]), last.formato)}
-        ${F.select('estrutura', 'Estrutura / técnica', Object.entries(SCRIPT_STRUCTURES).map(([k, v]) => [k, v.name]), last.estrutura)}
-        ${F.select('objetivo', 'Objetivo', OBJECTIVES, last.objetivo)}
+      <div class="card" style="align-self:start"><h3>${ico('settings-2')}Configuração</h3><form id="scrForm">${scriptFormFields(last)}
         <button class="btn primary" style="width:100%;justify-content:center">${ico('wand-2')}Gerar roteiro</button></form>
         <div class="tip mt small"><strong>Dica de analista:</strong> grave 4-6 roteiros no mesmo dia (batch). Use o teleprompter no celular ou notebook.</div></div>
-      <div id="scrOut">${emptyState('Escolha um tema e clique em “Gerar roteiro”. Você poderá trocar o gancho, editar, salvar e abrir no teleprompter.', 'clapperboard')}</div></div>`;
-    $('#rndTopic', body).onclick = () => { $('[name=tema]', body).value = tpl(pick(TOPICS).t, brandVars(genBrand())); };
-    const gen = (hook) => {
-      const d = formData($('#scrForm', body)); d.brand = genBrand();
-      state.ui.lastScript = d; save();
-      const r = buildScript({ ...d, hook });
-      $('#scrOut', body).innerHTML = `<div class="card"><div class="card-head"><h3>${ico('file-text')}${esc(d.tema || 'Roteiro')}</h3><span class="sp"></span><span class="badge">${esc(r.name)}</span></div>
-        <div class="field"><span>Escolha o gancho (clique para trocar)</span><div class="chips">${r.hooks.map(h => `<span class="chip" data-hook="${esc(h)}">${esc(h)}</span>`).join('')}</div></div>
-        <textarea id="scrText" rows="18">${esc(r.text)}</textarea>
-        <div class="tip mt-s small">🎬 <strong>${esc(SCRIPT_FORMATS[d.formato].name)}:</strong> ${esc(r.tips)}</div>
-        <div class="row mt"><button class="btn primary" id="scrSave">${ico('save')}Salvar roteiro</button><button class="btn" id="scrPrompter">${ico('monitor-play')}Teleprompter</button><button class="btn" id="scrCopy">${ico('copy')}Copiar</button><button class="btn" id="scrPost">${ico('calendar-plus')}Agendar post</button></div>
-        <hr><div class="small muted mb">Quer um roteiro 100% escrito (com falas completas)? Use a IA com todo o contexto da marca:</div><div class="row">${aiButtons('scr')}</div></div>`;
-      $$('[data-hook]', body).forEach(c => c.onclick = () => gen(c.dataset.hook));
-      $('#scrSave', body).onclick = () => { DB.add('scripts', { brand: d.brand, title: d.tema || 'Roteiro', formato: d.formato, estrutura: d.estrutura, text: $('#scrText', body).value, status: 'rascunho' }); toast('Roteiro salvo'); };
-      $('#scrPrompter', body).onclick = () => teleprompter($('#scrText', body).value);
-      $('#scrCopy', body).onclick = () => copy($('#scrText', body).value);
-      $('#scrPost', body).onclick = () => editPost({ title: d.tema, brand: d.brand, script: $('#scrText', body).value, format: d.formato === 'carrossel' ? 'Carrossel' : d.formato === 'stories' ? 'Stories' : d.formato === 'live' ? 'Live' : 'Reels', objective: d.objetivo, status: 'roteiro' });
-      wireAI(body, () => scriptPrompt(d), txt => { $('#scrText', body).value = txt; toast('Roteiro gerado pela IA'); });
-      icons();
-    };
-    $('#scrForm', body).onsubmit = e => { e.preventDefault(); gen(); };
-    if (last.tema) gen();
+      <div class="card" style="align-self:start"><h3>${ico('history')}Roteiros recentes</h3>${DB.all('scripts').slice(-6).reverse().map(s => `<div class="li" style="cursor:pointer" data-rs="${s.id}"><span class="badge">${esc(SCRIPT_FORMATS[s.formato]?.name || '')}</span><div class="grow t small">${esc(s.title)}</div>${ico('chevron-right')}</div>`).join('') || emptyState('Escolha um tema e clique em “Gerar roteiro”. O roteiro abre numa janela onde você troca o gancho, edita, salva e abre no teleprompter.', 'clapperboard')}</div></div>`;
+    wireScriptForm(body);
+    $('#scrForm', body).onsubmit = e => { e.preventDefault(); const d = formData(e.target); d.brand = genBrand(); state.ui.lastScript = d; save(); scriptModal(d); };
+    $$('[data-rs]', body).forEach(r => r.onclick = () => openSavedScript(r.dataset.rs));
   },
 });
+function scriptFormFields(last) {
+  return `${genBrandPicker()}
+    <label class="field"><span>Tema do conteúdo</span><input name="tema" list="topicList" value="${esc(last.tema || '')}" placeholder="Ex.: Pró-labore x distribuição de lucros"></label>
+    <datalist id="topicList">${TOPICS.map(t => `<option value="${esc(t.t)}">`).join('')}</datalist>
+    <button type="button" class="btn xs mb" data-rnd>${ico('shuffle')}Tema aleatório</button>
+    ${F.select('formato', 'Formato', Object.entries(SCRIPT_FORMATS).map(([k, v]) => [k, v.name]), last.formato || 'reels60')}
+    ${F.select('estrutura', 'Estrutura / técnica', Object.entries(SCRIPT_STRUCTURES).map(([k, v]) => [k, v.name]), last.estrutura || 'gcc')}
+    ${F.select('objetivo', 'Objetivo', OBJECTIVES, last.objetivo || 'autoridade')}`;
+}
+function wireScriptForm(root) { const r = $('[data-rnd]', root); if (r) r.onclick = () => { $('[name=tema]', root).value = tpl(pick(TOPICS).t, brandVars(genBrand())); }; }
+/* Janela rápida para criar roteiro de qualquer tela */
+function openScriptGenerator(tema) {
+  const last = { ...(state.ui.lastScript || {}), tema: tema || '' };
+  modal({ title: 'Criar roteiro', saveLabel: 'Gerar roteiro', body: scriptFormFields(last),
+    onOpen: f => wireScriptForm(f),
+    onSave: d => { if (!d.tema.trim()) { toast('Informe o tema'); return false; } d.brand = genBrand(); state.ui.lastScript = d; save(); setTimeout(() => scriptModal(d), 30); } });
+}
+/* Janela com o roteiro gerado */
+function scriptModal(d, hook) {
+  if (!d.tema || !d.tema.trim()) { toast('Informe o tema do roteiro'); return; }
+  const r = buildScript({ ...d, hook });
+  const m = modal({ title: 'Roteiro: ' + d.tema, size: 'xl',
+    body: `<div class="row mb"><span class="badge">${esc(r.name)}</span><span class="badge">${esc(SCRIPT_FORMATS[d.formato].name)}</span></div>
+      <div class="field"><span>Escolha o gancho (clique para trocar)</span><div class="chips">${r.hooks.map(h => `<span class="chip ${h === hook ? 'on' : ''}" data-hook="${esc(h)}">${esc(h)}</span>`).join('')}</div></div>
+      <textarea id="scrText" rows="16">${esc(r.text)}</textarea>
+      <div class="tip mt-s small">🎬 <strong>${esc(SCRIPT_FORMATS[d.formato].name)}:</strong> ${esc(r.tips)}</div>
+      <hr><div class="small muted mb">Quer o roteiro 100% escrito, com falas completas? Use a IA com todo o contexto da marca:</div><div class="row">${aiButtons('scr')}</div>`,
+    extraBtns: `<button type="button" class="btn" id="scrPrompter">${ico('monitor-play')}Teleprompter</button><button type="button" class="btn" id="scrCopy">${ico('copy')}Copiar</button><button type="button" class="btn" id="scrPost">${ico('calendar-plus')}Agendar post</button>`,
+    saveLabel: 'Salvar roteiro',
+    onSave: (x, f) => { saveScriptModal(d, $('#scrText', f).value); return false; } });
+  const w = m.el, txt = () => $('#scrText', w).value;
+  $$('[data-hook]', w).forEach(c => c.onclick = () => { m.close(); scriptModal(d, c.dataset.hook); });
+  $('#scrPrompter', w).onclick = () => teleprompter(txt());
+  $('#scrCopy', w).onclick = () => copy(txt());
+  $('#scrPost', w).onclick = () => editPost({ title: d.tema, brand: d.brand, script: txt(), format: d.formato === 'carrossel' ? 'Carrossel' : d.formato === 'stories' ? 'Stories' : d.formato === 'live' ? 'Live' : 'Reels', objective: d.objetivo, status: 'roteiro' });
+  wireAI(w, () => scriptPrompt(d), t => { $('#scrText', w).value = t; toast('Roteiro da IA aplicado'); }, 'Usar no roteiro');
+}
+function saveScriptModal(d, text) {
+  modal({ title: 'Salvar roteiro', saveLabel: 'Salvar',
+    body: `${F.text('title', 'Nome do roteiro', d.tema)}${F.select('status', 'Status', [['rascunho', 'Rascunho'], ['gravado', 'Já gravado']], 'rascunho')}${F.check('topost', 'Também criar um post no calendário', false)}${F.date('date', 'Data do post (se marcado acima)', today())}`,
+    onSave: x => { DB.add('scripts', { brand: d.brand, title: x.title || d.tema, formato: d.formato, estrutura: d.estrutura, text, status: x.status });
+      if (x.topost) DB.add('posts', { brand: d.brand, title: x.title || d.tema, date: x.date, time: '12:00', script: text, format: d.formato === 'carrossel' ? 'Carrossel' : d.formato === 'stories' ? 'Stories' : 'Reels', objective: d.objetivo, status: 'roteiro' });
+      toast(x.topost ? 'Roteiro salvo e post criado no calendário' : 'Roteiro salvo em “Meus roteiros”'); if (App.current === 'scripts') setTimeout(() => App.render(), 10); } });
+}
 function renderSavedScripts(body) {
   const list = DB.all('scripts').sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   body.innerHTML = list.length ? `<div class="grid g3">${list.map(s => `<div class="card"><div class="row"><span class="badge">${esc(SCRIPT_FORMATS[s.formato]?.name || s.formato)}</span>${state.brand === 'all' ? brandBadge(s.brand) : ''}<span class="badge ${s.status === 'gravado' ? 'ok' : ''}">${s.status === 'gravado' ? 'Gravado' : 'Rascunho'}</span></div>
@@ -127,13 +162,14 @@ function renderSavedScripts(body) {
     : `<div class="card">${emptyState('Nenhum roteiro salvo ainda.', 'clapperboard')}</div>`;
   $$('[data-tp]', body).forEach(b => b.onclick = () => teleprompter(DB.get('scripts', b.dataset.tp).text));
   $$('[data-done]', body).forEach(b => b.onclick = () => { const s = DB.get('scripts', b.dataset.done); DB.update('scripts', s.id, { status: s.status === 'gravado' ? 'rascunho' : 'gravado' }); App.render(); });
-  $$('[data-open-s]', body).forEach(b => b.onclick = () => {
-    const s = DB.get('scripts', b.dataset.openS);
-    modal({ title: s.title, size: 'wide', body: F.text('title', 'Título', s.title) + F.area('text', 'Roteiro', s.text, 18),
-      onSave: d => { DB.update('scripts', s.id, d); App.render(); }, onDelete: () => { DB.remove('scripts', s.id); App.render(); },
-      extraBtns: `<button type="button" class="btn" id="mTp">${ico('monitor-play')}Teleprompter</button>`,
-      onOpen: f => { $('#mTp').onclick = () => teleprompter($('[name=text]', f).value); } });
-  });
+  $$('[data-open-s]', body).forEach(b => b.onclick = () => openSavedScript(b.dataset.openS));
+}
+function openSavedScript(id) {
+  const s = DB.get('scripts', id);
+  modal({ title: s.title, size: 'wide', body: F.text('title', 'Título', s.title) + F.select('status', 'Status', [['rascunho', 'Rascunho'], ['gravado', 'Gravado']], s.status) + F.area('text', 'Roteiro', s.text, 16),
+    onSave: d => { DB.update('scripts', s.id, d); toast('Roteiro atualizado'); App.render(); }, onDelete: () => { DB.remove('scripts', s.id); App.render(); },
+    extraBtns: `<button type="button" class="btn" data-mtp>${ico('monitor-play')}Teleprompter</button>`,
+    onOpen: (f, w) => { $('[data-mtp]', w).onclick = () => teleprompter($('[name=text]', f).value); } });
 }
 
 /* Teleprompter em tela cheia */
@@ -208,21 +244,20 @@ view('captions', {
     const body = $('#capBody', el);
     if (tb.cur === 'saved') {
       const list = DB.all('captions').sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-      body.innerHTML = list.length ? `<div class="grid g2">${list.map(c => `<div class="card"><div class="row"><strong>${esc(c.title)}</strong>${state.brand === 'all' ? brandBadge(c.brand) : ''}<span class="sp"></span><span class="muted small">${c.text.length} caracteres</span></div><div class="out mt-s">${esc(c.text)}</div><div class="row mt-s"><button class="btn xs" data-cp="${c.id}">${ico('copy')}Copiar</button><button class="btn xs" data-use="${c.id}">${ico('calendar-plus')}Usar em post</button><button class="btn xs danger" data-rm="${c.id}">${ico('trash-2')}</button></div></div>`).join('')}</div>` : `<div class="card">${emptyState('Nenhuma legenda salva.', 'type')}</div>`;
+      body.innerHTML = `<div class="row mb"><span class="sp"></span><button class="btn primary" id="capNewManual">${ico('plus')}Nova legenda</button></div>` + (list.length ? `<div class="grid g2">${list.map(c => `<div class="card"><div class="row"><strong>${esc(c.title)}</strong>${state.brand === 'all' ? brandBadge(c.brand) : ''}<span class="sp"></span><span class="muted small">${c.text.length} caracteres</span></div><div class="out mt-s" style="max-height:160px;overflow:hidden">${esc(c.text)}</div><div class="row mt-s"><button class="btn xs" data-ed="${c.id}">${ico('pencil')}Abrir</button><button class="btn xs" data-cp="${c.id}">${ico('copy')}Copiar</button><button class="btn xs" data-use="${c.id}">${ico('calendar-plus')}Usar em post</button></div></div>`).join('')}</div>` : `<div class="card">${emptyState('Nenhuma legenda salva.', 'type')}</div>`);
+      const editCap = (c = {}) => modal({ title: c.id ? 'Editar legenda' : 'Nova legenda', size: 'wide', body: `${F.text('title', 'Título', c.title)}${F.brand(c.brand)}${F.area('text', 'Legenda', c.text, 12)}`,
+        onSave: d => { if (!d.text.trim()) { toast('Escreva a legenda'); return false; } if (c.id) DB.update('captions', c.id, d); else DB.add('captions', d); toast('Legenda salva'); App.render(); },
+        onDelete: c.id ? () => { DB.remove('captions', c.id); App.render(); } : null });
+      $('#capNewManual', body).onclick = () => editCap();
+      $$('[data-ed]', body).forEach(b => b.onclick = () => editCap(DB.get('captions', b.dataset.ed)));
       $$('[data-cp]', body).forEach(b => b.onclick = () => copy(DB.get('captions', b.dataset.cp).text));
       $$('[data-use]', body).forEach(b => b.onclick = () => { const c = DB.get('captions', b.dataset.use); editPost({ title: c.title, caption: c.text, brand: c.brand }); });
-      $$('[data-rm]', body).forEach(b => b.onclick = () => { DB.remove('captions', b.dataset.rm); App.render(); });
       return;
     }
     if (tb.cur === 'bio') {
-      const b = genBrand();
-      body.innerHTML = `<div class="grid g-side-l"><div class="card" style="align-self:start">${genBrandPicker()}<p class="small muted">A bio usa os dados de <a href="#/brand">Marca & IA</a>. Limite do Instagram: 150 caracteres.</p><button class="btn primary" id="bioGen">${ico('refresh-cw')}Gerar opções</button>
-        <div class="tip mt small"><strong>Checklist de bio que converte:</strong><br>✔ Quem você ajuda<br>✔ Como ajuda (serviço)<br>✔ Prova/diferencial<br>✔ Localização (busca local)<br>✔ CTA + link (WhatsApp ou página)</div></div>
-        <div>${bioOptions(b).map(x => `<div class="out"><div>${esc(x)}</div><div class="out-actions"><span class="badge ${x.length > 150 ? 'bad' : 'ok'}">${x.length}/150</span><button class="btn xs" data-copy="${esc(x)}">${ico('copy')}Copiar</button></div></div>`).join('')}
-        <div class="row mt">${aiButtons('bio')}</div><div id="bioAI"></div></div></div>`;
-      $('#bioGen', body).onclick = () => App.render();
-      $$('[data-copy]', body).forEach(x => x.onclick = () => copy(x.dataset.copy));
-      wireAI(body, () => tpl(PROMPTS.find(p => p.n.startsWith('Posicionamento')).p, { ...brandVars(b), pilares: profile(b).pilares }), t => { $('#bioAI', body).innerHTML = `<div class="out mt">${esc(t)}</div>`; });
+      body.innerHTML = `<div class="card" style="max-width:640px">${genBrandPicker()}<p class="small muted">A bio usa os dados de <a href="#/brand">Marca & IA</a>. Limite do Instagram: 150 caracteres.</p><button class="btn primary" id="bioGen">${ico('wand-2')}Gerar opções de bio</button>
+        <div class="tip mt small"><strong>Checklist de bio que converte:</strong><br>✔ Quem você ajuda<br>✔ Como ajuda (serviço)<br>✔ Prova/diferencial<br>✔ Localização (busca local)<br>✔ CTA + link (WhatsApp ou página)</div></div>`;
+      $('#bioGen', body).onclick = () => bioModal(genBrand());
       return;
     }
     if (tb.cur === 'bank') {
@@ -234,35 +269,55 @@ view('captions', {
       return;
     }
     const pre = state.ui.prefill || ''; state.ui.prefill = '';
-    const last = state.ui.lastCap || { tema: pre, objetivo: 'autoridade', tamanho: 'media', emojis: true, local: true, tags: ['Contabilidade', 'Empreendedorismo'] };
-    if (pre) last.tema = pre;
-    body.innerHTML = `<div class="grid g-side-l"><div class="card" style="align-self:start"><form id="capForm">${genBrandPicker()}
-      <label class="field"><span>Tema do post</span><input name="tema" list="topicList2" value="${esc(last.tema)}" placeholder="Ex.: Fator R para prestadores de serviço"></label><datalist id="topicList2">${TOPICS.map(t => `<option value="${esc(t.t)}">`).join('')}</datalist>
-      ${F.select('objetivo', 'Objetivo', OBJECTIVES, last.objetivo)}${F.select('tamanho', 'Tamanho', [['curta', 'Curta'], ['media', 'Média'], ['longa', 'Longa (storytelling)']], last.tamanho)}
-      <div class="field"><span>Hashtags</span><div class="chips" id="tagChips">${Object.keys(HASHTAGS).map(k => `<span class="chip ${last.tags.includes(k) ? 'on' : ''}" data-tag="${k}">${k}</span>`).join('')}</div></div>
-      ${F.check('emojis', 'Usar emojis', last.emojis)}${F.check('local', 'Incluir palavras-chave locais (cidade)', last.local)}
+    const last = { ...(state.ui.lastCap || {}) }; if (pre) last.tema = pre;
+    body.innerHTML = `<div class="grid g-side-l"><div class="card" style="align-self:start"><form id="capForm">${captionFormFields(last)}
       <button class="btn primary mt" style="width:100%;justify-content:center">${ico('wand-2')}Gerar 3 legendas</button></form></div>
-      <div id="capOut">${emptyState('Defina o tema e gere 3 variações. Os trechos entre [colchetes] são para você completar — ou use a IA para gerar o texto completo.', 'type')}</div></div>`;
-    $$('#tagChips .chip', body).forEach(c => c.onclick = () => c.classList.toggle('on'));
-    const gen = () => {
-      const d = formData($('#capForm', body)); d.brand = genBrand(); d.tags = $$('#tagChips .chip.on', body).map(c => c.dataset.tag);
-      state.ui.lastCap = d; save();
-      const caps = buildCaptions(d);
-      $('#capOut', body).innerHTML = caps.map((c, i) => `<div class="out"><h4>Variação ${i + 1}</h4><textarea rows="12" data-cap="${i}">${esc(c)}</textarea>
-        <div class="out-actions"><span class="badge" data-cnt="${i}">${c.length}/2200</span><button class="btn xs" data-c="${i}">${ico('copy')}Copiar</button><button class="btn xs" data-s="${i}">${ico('save')}Salvar</button><button class="btn xs" data-p="${i}">${ico('calendar-plus')}Usar em post</button></div></div>`).join('')
-        + `<div class="card mt"><div class="small muted mb">Gere legendas completas, sem colchetes, com a IA:</div><div class="row">${aiButtons('cap')}</div><div id="capAI"></div></div>`;
-      const val = i => $(`[data-cap="${i}"]`, body).value;
-      $$('[data-cap]', body).forEach(t => t.oninput = () => { $(`[data-cnt="${t.dataset.cap}"]`, body).textContent = t.value.length + '/2200'; });
-      $$('[data-c]', body).forEach(b => b.onclick = () => copy(val(b.dataset.c)));
-      $$('[data-s]', body).forEach(b => b.onclick = () => { DB.add('captions', { brand: d.brand, title: d.tema || 'Legenda', text: val(b.dataset.s), objetivo: d.objetivo }); toast('Legenda salva'); });
-      $$('[data-p]', body).forEach(b => b.onclick = () => editPost({ title: d.tema, caption: val(b.dataset.p), brand: d.brand, objective: d.objetivo }));
-      wireAI(body, () => captionPrompt(d), t => { $('#capAI', body).innerHTML = `<div class="out mt">${esc(t)}</div><div class="row mt-s"><button class="btn xs" id="capAIc">${ico('copy')}Copiar</button><button class="btn xs" id="capAIs">${ico('save')}Salvar</button></div>`; $('#capAIc').onclick = () => copy(t); $('#capAIs').onclick = () => { DB.add('captions', { brand: d.brand, title: d.tema, text: t }); toast('Salvo'); }; icons(); });
-      icons();
-    };
-    $('#capForm', body).onsubmit = e => { e.preventDefault(); gen(); };
-    if (last.tema) gen();
+      <div class="card" style="align-self:start"><h3>${ico('history')}Legendas recentes</h3>${DB.all('captions').slice(-6).reverse().map(c => `<div class="li"><div class="grow"><div class="t small">${esc(c.title)}</div><div class="muted small">${esc(c.text.slice(0, 90))}…</div></div><button class="btn xs" data-cp="${c.id}">${ico('copy')}</button></div>`).join('') || emptyState('Defina o tema e clique em “Gerar 3 legendas”. As variações abrem numa janela para você editar, copiar, salvar ou usar num post.', 'type')}</div></div>`;
+    wireCaptionForm(body);
+    $$('[data-cp]', body).forEach(b => b.onclick = () => copy(DB.get('captions', b.dataset.cp).text));
+    $('#capForm', body).onsubmit = e => { e.preventDefault(); const d = readCaptionForm(e.target); captionModal(d); };
   },
 });
+function captionFormFields(last) {
+  const tags = last.tags || ['Contabilidade', 'Empreendedorismo'];
+  return `${genBrandPicker()}<label class="field"><span>Tema do post</span><input name="tema" list="topicList2" value="${esc(last.tema || '')}" placeholder="Ex.: Fator R para prestadores de serviço"></label><datalist id="topicList2">${TOPICS.map(t => `<option value="${esc(t.t)}">`).join('')}</datalist>
+    ${F.select('objetivo', 'Objetivo', OBJECTIVES, last.objetivo || 'autoridade')}${F.select('tamanho', 'Tamanho', [['curta', 'Curta'], ['media', 'Média'], ['longa', 'Longa (storytelling)']], last.tamanho || 'media')}
+    <div class="field"><span>Hashtags</span><div class="chips" data-tagchips>${Object.keys(HASHTAGS).map(k => `<span class="chip ${tags.includes(k) ? 'on' : ''}" data-tag="${k}">${k}</span>`).join('')}</div></div>
+    ${F.check('emojis', 'Usar emojis', last.emojis ?? true)}${F.check('local', 'Incluir palavras-chave locais (cidade)', last.local ?? true)}`;
+}
+function wireCaptionForm(root) { $$('[data-tagchips] .chip', root).forEach(c => c.onclick = () => c.classList.toggle('on')); }
+function readCaptionForm(root) { const d = formData(root); d.brand = genBrand(); d.tags = $$('[data-tagchips] .chip.on', root).map(c => c.dataset.tag); state.ui.lastCap = d; save(); return d; }
+/* Janela rápida para criar legenda de qualquer tela */
+function openCaptionGenerator(tema) {
+  modal({ title: 'Criar legenda', saveLabel: 'Gerar 3 legendas', body: captionFormFields({ ...(state.ui.lastCap || {}), tema: tema || '' }),
+    onOpen: f => wireCaptionForm(f),
+    onSave: (x, f) => { const d = readCaptionForm(f); if (!d.tema.trim()) { toast('Informe o tema'); return false; } setTimeout(() => captionModal(d), 30); } });
+}
+/* Janela com as 3 legendas geradas */
+function captionModal(d) {
+  if (!d.tema || !d.tema.trim()) { toast('Informe o tema do post'); return; }
+  const caps = buildCaptions(d);
+  const m = modal({ title: 'Legendas: ' + d.tema, size: 'xl',
+    body: `<p class="small muted" style="margin-top:0">Os trechos entre [colchetes] são para você completar — ou use a IA para receber o texto pronto.</p><div class="grid g3">${caps.map((c, i) => `<div class="out"><h4>Variação ${i + 1}</h4><textarea rows="14" data-cap="${i}">${esc(c)}</textarea>
+      <div class="out-actions"><span class="badge" data-cnt="${i}">${c.length}/2200</span><button class="btn xs" data-c="${i}">${ico('copy')}Copiar</button><button class="btn xs" data-s="${i}">${ico('save')}Salvar</button><button class="btn xs" data-p="${i}">${ico('calendar-plus')}Usar em post</button></div></div>`).join('')}</div>
+      <hr><div class="row">${aiButtons('cap')}</div>`,
+    extraBtns: `<button type="button" class="btn" data-regen>${ico('refresh-cw')}Gerar outras</button>` });
+  const w = m.el, val = i => $(`[data-cap="${i}"]`, w).value;
+  $$('[data-cap]', w).forEach(t => t.oninput = () => { $(`[data-cnt="${t.dataset.cap}"]`, w).textContent = t.value.length + '/2200'; });
+  $$('[data-c]', w).forEach(b => b.onclick = () => copy(val(b.dataset.c)));
+  $$('[data-s]', w).forEach(b => b.onclick = () => promptBox('Salvar legenda', 'Nome da legenda', d.tema, n => { DB.add('captions', { brand: d.brand, title: n, text: val(b.dataset.s), objetivo: d.objetivo }); toast('Legenda salva em “Minhas legendas”'); }, { saveLabel: 'Salvar' }));
+  $$('[data-p]', w).forEach(b => b.onclick = () => editPost({ title: d.tema, caption: val(b.dataset.p), brand: d.brand, objective: d.objetivo }));
+  $('[data-regen]', w).onclick = () => { m.close(); captionModal(d); };
+  wireAI(w, () => captionPrompt(d));
+}
+function bioModal(b) {
+  const m = modal({ title: 'Opções de bio — ' + profile(b).name, size: 'wide',
+    body: bioOptions(b).map(x => `<div class="out"><div>${esc(x)}</div><div class="out-actions"><span class="badge ${x.length > 150 ? 'bad' : 'ok'}">${x.length}/150</span><button class="btn xs" data-copy="${esc(x)}">${ico('copy')}Copiar</button></div></div>`).join('') + `<hr><div class="row">${aiButtons('bio')}</div>`,
+    extraBtns: `<button type="button" class="btn" data-regen>${ico('refresh-cw')}Gerar outras</button>` });
+  $$('[data-copy]', m.el).forEach(x => x.onclick = () => copy(x.dataset.copy));
+  $('[data-regen]', m.el).onclick = () => { m.close(); bioModal(b); };
+  wireAI(m.el, () => tpl(PROMPTS.find(p => p.n.startsWith('Posicionamento')).p, { ...brandVars(b), pilares: profile(b).pilares }));
+}
 
 /* ---------- Prompts ---------- */
 view('prompts', {
@@ -275,17 +330,23 @@ view('prompts', {
     const mine = DB.all('prompts').map(x => ({ cat: 'Meus prompts', n: x.name, p: x.text, id: x.id }));
     const list = [...PROMPTS, ...mine].filter(x => cat === 'Todos' || x.cat === cat);
     el.innerHTML = `<div class="card mb"><div class="row">${genBrandPicker() ? `<div style="width:260px">${genBrandPicker()}</div>` : ''}<label class="field" style="flex:1;min-width:240px"><span>Tema para preencher os prompts ({tema})</span><input id="pTema" value="${esc(state.ui.promptTema || '')}" placeholder="Ex.: Reforma tributária para prestadores de serviço"></label>
-      <button class="btn" id="pNew">${ico('plus')}Criar meu prompt</button></div>
+      <button class="btn primary" id="pNew">${ico('plus')}Criar meu prompt</button></div>
       <div class="chips">${cats.map(c => `<span class="chip ${c === cat ? 'on' : ''}" data-cat="${c}">${c}</span>`).join('')}</div></div>
       <div class="grid g2">${list.map((x, i) => { const filled = tpl(x.p, vars); return `<div class="card"><div class="row"><span class="badge info">${x.cat}</span><strong>${esc(x.n)}</strong></div>
         <div class="out mt-s small" style="max-height:170px;overflow:auto">${esc(filled)}</div>
-        <div class="row mt-s"><button class="btn xs" data-cp="${i}">${ico('copy')}Copiar</button><button class="btn xs" data-open="claude" data-for="${i}">${ico('external-link')}Claude</button><button class="btn xs" data-open="chatgpt" data-for="${i}">${ico('external-link')}ChatGPT</button><button class="btn xs primary" data-ai="${i}">${ico('sparkles')}Rodar aqui</button>${x.id ? `<button class="btn xs danger" data-rmp="${x.id}">${ico('trash-2')}</button>` : ''}</div><div data-res="${i}"></div></div>`; }).join('')}</div>`;
+        <div class="row mt-s"><button class="btn xs" data-view="${i}">${ico('maximize-2')}Abrir</button><button class="btn xs" data-cp="${i}">${ico('copy')}Copiar</button><button class="btn xs" data-open="claude" data-for="${i}">${ico('external-link')}Claude</button><button class="btn xs" data-open="chatgpt" data-for="${i}">${ico('external-link')}ChatGPT</button><button class="btn xs primary" data-ai="${i}">${ico('sparkles')}Rodar aqui</button></div></div>`; }).join('')}</div>`;
     $$('[data-cat]', el).forEach(c => c.onclick = () => { state.ui.promptCat = c.dataset.cat; App.render(); });
     $('#pTema', el).onchange = e => { state.ui.promptTema = e.target.value; save(); App.render(); };
     $$('[data-cp]', el).forEach(bt => bt.onclick = () => copy(tpl(list[bt.dataset.cp].p, vars)));
-    $$('[data-rmp]', el).forEach(bt => bt.onclick = () => { DB.remove('prompts', bt.dataset.rmp); App.render(); });
-    wireAI(el, i => tpl(list[i].p, vars), (t, i) => { const r = $(`[data-res="${i}"]`, el); r.innerHTML = `<div class="out mt-s">${esc(t)}</div><button class="btn xs mt-s" id="cpr${i}">${ico('copy')}Copiar resposta</button>`; $('#cpr' + i).onclick = () => copy(t); icons(); });
-    $('#pNew', el).onclick = () => modal({ title: 'Novo prompt', body: `<p class="small muted">Use variáveis: {marca} {publico} {servicos} {tom} {cidade} {tema} {dores} {diferenciais}</p>${F.text('name', 'Nome')}${F.area('text', 'Prompt', '', 8)}${F.brand('both')}`,
-      onSave: d => { DB.add('prompts', d); App.render(); } });
+    const editPrompt = (x = {}) => modal({ title: x.id ? 'Editar prompt' : 'Criar meu prompt', size: 'wide', body: `<p class="small muted" style="margin-top:0">Use variáveis: {marca} {publico} {servicos} {tom} {cidade} {tema} {dores} {diferenciais}</p>${F.text('name', 'Nome', x.name)}${F.area('text', 'Prompt', x.text, 8)}${F.brand(x.brand || 'both')}`,
+      onSave: d => { if (!d.name.trim() || !d.text.trim()) { toast('Preencha nome e prompt'); return false; } if (x.id) DB.update('prompts', x.id, d); else DB.add('prompts', d); toast('Prompt salvo em “Meus prompts”'); App.render(); },
+      onDelete: x.id ? () => { DB.remove('prompts', x.id); App.render(); } : null });
+    $$('[data-view]', el).forEach(bt => bt.onclick = () => {
+      const x = list[bt.dataset.view];
+      const m = textModal(x.n, tpl(x.p, vars), { use: t => runAI(t, x.n), useLabel: 'Rodar com IA aqui' });
+      if (x.id) { const eb = document.createElement('button'); eb.type = 'button'; eb.className = 'btn'; eb.textContent = 'Editar'; eb.onclick = () => { m.close(); editPrompt(DB.get('prompts', x.id)); }; $('.modal-foot', m.el).prepend(eb); }
+    });
+    wireAI(el, i => tpl(list[i].p, vars));
+    $('#pNew', el).onclick = () => editPrompt();
   },
 });

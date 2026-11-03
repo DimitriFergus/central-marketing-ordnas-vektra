@@ -35,7 +35,7 @@ view('leads', {
     $('#lCsv', el).onclick = () => download('leads.csv', '﻿' + [['Nome', 'Empresa', 'WhatsApp', 'Origem', 'Interesse', 'Valor', 'Etapa', 'Data', 'Marca'], ...L.map(l => [l.name, l.company, l.phone, l.source, l.service, l.value, l.stage, l.date, l.brand])].map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(';')).join('\n'), 'text/csv');
     let drag = null;
     $$('.kcard', el).forEach(c => { c.ondragstart = () => drag = c.dataset.id; c.onclick = () => editLead(DB.get('leads', c.dataset.id)); });
-    $$('.kcol', el).forEach(col => { col.ondragover = e => { e.preventDefault(); col.classList.add('drag'); }; col.ondragleave = () => col.classList.remove('drag'); col.ondrop = e => { e.preventDefault(); if (drag) { DB.update('leads', drag, { stage: col.dataset.col }); if (col.dataset.col === 'ganho') toast('🎉 Cliente fechado! Registre no portfólio de resultados.'); App.render(); } }; });
+    $$('.kcol', el).forEach(col => { col.ondragover = e => { e.preventDefault(); col.classList.add('drag'); }; col.ondragleave = () => col.classList.remove('drag'); col.ondrop = e => { e.preventDefault(); if (drag) { DB.update('leads', drag, { stage: col.dataset.col }); App.render(); if (col.dataset.col === 'ganho') { const l = DB.get('leads', drag); modal({ title: '🎉 Cliente fechado!', saveLabel: 'Registrar no portfólio', body: '<p><strong>' + esc(l.name) + '</strong> virou cliente' + (l.value ? ' (' + fmt.money(l.value) + '/mês)' : '') + '. Quer registrar essa conquista no seu portfólio de resultados?</p>', onSave: () => { DB.add('wins', { brand: l.brand, date: today(), title: 'Novo cliente: ' + l.name, metric: l.value ? fmt.money(l.value) + '/mês' : '', desc: 'Origem: ' + (l.source || '-') }); toast('Conquista registrada no portfólio'); } }); } } }; });
   },
 });
 
@@ -84,8 +84,10 @@ view('metrics', {
   },
 });
 function monthlyReport(show) {
-  const mk = prompt('Mês do relatório (AAAA-MM):', show.length ? show[show.length - 1].month : monthKey());
-  if (!mk) return;
+  if (!show.length) { modal({ title: 'Relatório mensal', body: `<div class="tip warn">Ainda não há métricas registradas. Registre o mês primeiro.</div>`, extraBtns: `<button type="button" class="btn primary" data-reg>${ico('plus')}Registrar mês</button>`, onOpen: (f, w, close) => { $('[data-reg]', w).onclick = () => { close(); editMetric(); }; } }); return; }
+  promptBox('Gerar relatório mensal', 'Mês do relatório', show[show.length - 1].month, mk => { buildReport(show, mk); }, { saveLabel: 'Gerar relatório', options: [...show].reverse().map(m => [m.month, MONTHS[+m.month.slice(5) - 1] + ' ' + m.month.slice(0, 4)]) });
+}
+function buildReport(show, mk) {
   const i = show.findIndex(m => m.month === mk);
   if (i < 0) { toast('Não há métricas registradas para este mês'); return; }
   const m = show[i], p = show[i - 1];
@@ -99,6 +101,7 @@ function monthlyReport(show) {
   if (cac && num(m.revenue)) ins.push(`Cada novo cliente custou ${fmt.money(cac)} e gera em média ${fmt.money(num(m.revenue) / Math.max(1, num(m.clients)))} por mês — o investimento se paga em ${fmt.num(cac / (num(m.revenue) / Math.max(1, num(m.clients))), 1)} meses.`);
   if (posts.length) ins.push(`${posts.filter(x => x.status === 'publicado').length} de ${posts.length} posts planejados foram publicados (${fmt.pct(posts.filter(x => x.status === 'publicado').length / posts.length * 100, 0)} de execução).`);
   const w = window.open('', '_blank');
+  if (!w) { modal({ title: 'Permita pop-ups', body: '<div class="tip warn">O navegador bloqueou a janela do relatório. Clique no ícone de pop-up bloqueado na barra de endereço, permita para este site e gere de novo.</div>' }); return; }
   w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório ${mk} — ${bn}</title><style>
     body{font-family:Inter,Segoe UI,Arial,sans-serif;color:#0f172a;max-width:900px;margin:30px auto;padding:0 24px}h1{margin:0;font-size:26px}.sub{color:#64748b;margin:4px 0 24px}
     .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.k{border:1px solid #e2e8f0;border-radius:12px;padding:14px}.l{font-size:12px;color:#64748b;font-weight:600}.v{font-size:24px;font-weight:800;margin-top:4px}.g{color:#16a34a;font-size:12px}.r{color:#dc2626;font-size:12px}
@@ -139,18 +142,25 @@ view('goals', {
         return `<div class="card" style="cursor:pointer" data-g="${g.id}"><div class="row">${state.brand === 'all' ? brandBadge(g.brand) : ''}${g.auto ? '<span class="badge info">automática</span>' : ''}${days !== null ? `<span class="badge ${days < 0 ? 'bad' : days < 7 ? 'warn' : ''}">${days < 0 ? 'vencida' : days + ' dias'}</span>` : ''}</div>
           <h3 class="mt-s" style="margin-bottom:8px">${esc(g.name)}</h3><div class="row"><span style="font-size:24px;font-weight:800">${fmt.num(g.current)}</span><span class="muted">/ ${fmt.num(g.target)} ${esc(g.unit || '')}</span><span class="sp"></span><strong>${fmt.pct(p, 0)}</strong></div>
           <div class="progress mt-s"><div style="width:${p}%"></div></div>${g.why ? `<p class="muted small">${esc(g.why)}</p>` : ''}</div>`; }).join('') || `<div class="card" style="grid-column:1/-1">${emptyState('Nenhuma meta. Clique em “Sugerir metas” para começar com metas típicas de um escritório contábil.', 'target')}</div>`}</div>`;
-    const edit = (g = {}) => modal({ title: g.id ? 'Editar meta' : 'Nova meta', body: `${F.text('name', 'Meta', g.name)}<div class="form-row">${F.num('target', 'Alvo', g.target)}${F.num('current', 'Atual', g.current)}${F.text('unit', 'Unidade', g.unit)}</div><div class="form-row">${F.select('auto', 'Atualização', GOAL_AUTO, g.auto)}${F.date('deadline', 'Prazo', g.deadline)}</div>${F.brand(g.brand)}${F.text('why', 'Por que essa meta importa', g.why)}`,
-      onSave: d => { if (g.id) DB.update('goals', g.id, d); else DB.add('goals', d); App.render(); }, onDelete: g.id ? () => { DB.remove('goals', g.id); App.render(); } : null });
-    $('#gNew', el).onclick = () => edit();
-    $$('[data-g]', el).forEach(c => c.onclick = () => edit(DB.get('goals', c.dataset.g)));
-    $('#gSug', el).onclick = () => {
-      const end = ymd(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)), br = genBrand();
-      [{ name: 'Novos clientes no mês', target: 6, auto: 'clients', unit: 'clientes', why: 'Meta principal do marketing: gerar receita.' }, { name: 'Leads qualificados no mês', target: 60, auto: 'leads', unit: 'leads' }, { name: 'Posts publicados no mês', target: 16, auto: 'posts', unit: 'posts', why: 'Consistência gera alcance.' }, { name: 'Receita nova recorrente', target: 3000, auto: 'revenue', unit: 'R$' }]
-        .forEach(g => DB.add('goals', { ...g, brand: br, current: 0, deadline: end }));
-      App.render();
-    };
+    $('#gNew', el).onclick = () => editGoal();
+    $$('[data-g]', el).forEach(c => c.onclick = () => editGoal(DB.get('goals', c.dataset.g)));
+    $('#gSug', el).onclick = suggestGoalsModal;
   },
 });
+function editGoal(g = {}) {
+  modal({ title: g.id ? 'Editar meta' : 'Nova meta', saveLabel: g.id ? 'Salvar' : 'Criar meta',
+    body: `${F.text('name', 'Meta', g.name, 'placeholder="Ex.: Novos clientes no mês"')}<div class="form-row">${F.num('target', 'Alvo', g.target)}${F.num('current', 'Atual', g.current)}${F.text('unit', 'Unidade', g.unit)}</div><div class="form-row">${F.select('auto', 'Atualização', GOAL_AUTO, g.auto)}${F.date('deadline', 'Prazo', g.deadline)}</div>${F.brand(g.brand)}${F.text('why', 'Por que essa meta importa', g.why)}`,
+    onSave: d => { if (!d.name.trim() || !num(d.target)) { toast('Informe o nome e o alvo da meta'); return false; } if (g.id) DB.update('goals', g.id, d); else DB.add('goals', d); toast(g.id ? 'Meta atualizada' : 'Meta criada'); App.render(); },
+    onDelete: g.id ? () => { DB.remove('goals', g.id); App.render(); } : null });
+}
+function suggestGoalsModal() {
+  const end = ymd(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0));
+  const sug = [{ name: 'Novos clientes no mês', target: 6, auto: 'clients', unit: 'clientes', why: 'Meta principal do marketing: gerar receita.' }, { name: 'Leads qualificados no mês', target: 60, auto: 'leads', unit: 'leads' }, { name: 'Posts publicados no mês', target: 16, auto: 'posts', unit: 'posts', why: 'Consistência gera alcance.' }, { name: 'Receita nova recorrente', target: 3000, auto: 'revenue', unit: 'R$' }, { name: 'Seguidores no Instagram', target: 2000, auto: 'followers', unit: 'seguidores' }];
+  modal({ title: 'Sugestões de metas', size: 'wide', saveLabel: 'Criar metas selecionadas',
+    body: `<p class="small muted" style="margin-top:0">Marque as metas e ajuste os alvos. Elas se atualizam sozinhas com os dados do CRM, calendário e Instagram.</p>${F.brand(genBrand())}
+      <table class="table"><tr><th></th><th>Meta</th><th>Alvo</th></tr>${sug.map((g, k) => `<tr><td><input type="checkbox" name="c${k}" ${k < 4 ? 'checked' : ''}></td><td>${esc(g.name)}</td><td style="width:140px"><input type="number" name="t${k}" value="${g.target}"></td></tr>`).join('')}</table>`,
+    onSave: d => { let n = 0; sug.forEach((g, k) => { if (d['c' + k]) { DB.add('goals', { ...g, target: num(d['t' + k]), brand: d.brand, current: 0, deadline: end }); n++; } }); toast(`${n} meta(s) criada(s)`); App.render(); } });
+}
 
 /* ---------- Concorrentes ---------- */
 view('competitors', {
@@ -189,10 +199,10 @@ view('routine', {
       body.innerHTML = `<div class="grid g3">${['diaria', 'semanal', 'mensal'].map(k => { const items = [...ROUTINE[k], ...R.custom[k]], pk = periodKey(k), done = R.done[pk] || []; const p = items.length ? done.length / items.length * 100 : 0;
         return `<div class="card"><div class="card-head"><h3>${ico(k === 'diaria' ? 'sun' : k === 'semanal' ? 'calendar-range' : 'calendar')}${k === 'diaria' ? 'Hoje' : k === 'semanal' ? 'Esta semana' : 'Este mês'}</h3><span class="sp"></span><strong>${fmt.pct(p, 0)}</strong></div><div class="progress mb"><div style="width:${p}%"></div></div>
           ${items.map((it, i) => `<label class="chk" style="padding:5px 0"><input type="checkbox" data-k="${k}" data-i="${esc(it)}" ${done.includes(it) ? 'checked' : ''}> <span style="${done.includes(it) ? 'text-decoration:line-through;opacity:.6' : ''}">${esc(it)}</span>${i >= ROUTINE[k].length ? ` <button class="btn xs ghost" data-rmc="${k}|${esc(it)}">✕</button>` : ''}</label>`).join('')}
-          <form class="row mt-s" data-add="${k}"><input name="t" placeholder="Adicionar tarefa…"><button class="btn sm">${ico('plus')}</button></form></div>`; }).join('')}</div>
+          <button class="btn sm mt-s" data-add="${k}">${ico('plus')}Adicionar tarefa</button></div>`; }).join('')}</div>
         <div class="tip mt small">As listas zeram automaticamente a cada novo dia, semana e mês. Personalize com as tarefas da sua rotina.</div>`;
       $$('[data-k]', body).forEach(c => c.onchange = () => { const pk = periodKey(c.dataset.k); const a = R.done[pk] ||= []; if (c.checked) a.push(c.dataset.i); else R.done[pk] = a.filter(x => x !== c.dataset.i); save(); App.render(); });
-      $$('[data-add]', body).forEach(f => f.onsubmit = e => { e.preventDefault(); const t = formData(f).t.trim(); if (t) { R.custom[f.dataset.add].push(t); save(); App.render(); } });
+      $$('[data-add]', body).forEach(b => b.onclick = () => { const k = b.dataset.add; modal({ title: 'Nova tarefa — ' + (k === 'diaria' ? 'rotina diária' : k === 'semanal' ? 'rotina semanal' : 'rotina mensal'), saveLabel: 'Adicionar tarefa', body: F.text('t', 'Tarefa', '', 'placeholder="Ex.: Conferir relatório de anúncios"') + F.select('k', 'Frequência', [['diaria', 'Todo dia'], ['semanal', 'Toda semana'], ['mensal', 'Todo mês']], k), onSave: d => { if (!d.t.trim()) { toast('Escreva a tarefa'); return false; } R.custom[d.k].push(d.t.trim()); save(); toast('Tarefa adicionada'); App.render(); } }); });
       $$('[data-rmc]', body).forEach(b => b.onclick = e => { e.preventDefault(); const [k, t] = b.dataset.rmc.split('|'); R.custom[k] = R.custom[k].filter(x => x !== t); save(); App.render(); });
       return;
     }
@@ -256,8 +266,8 @@ view('brand', {
       <div class="grid" style="align-content:start"><div class="card"><h3>${ico('eye')}Prévia</h3><div style="border-radius:14px;padding:18px;background:linear-gradient(135deg,${p.color},${p.color2});color:#fff"><div style="font-weight:800;font-size:18px">${esc(p.name)}</div><div style="opacity:.85">${esc(p.handle)}</div><div class="small" style="margin-top:10px">${esc(p.tom)}</div></div>
         <div class="tip small mt">Quanto mais completo este perfil, melhores ficam legendas, roteiros, prompts e anúncios gerados.</div></div>
         <div class="card"><h3>${ico('user-round')}Persona (gerar com IA)</h3><p class="small muted">Crie personas detalhadas do cliente ideal a partir deste perfil.</p><div class="row">${aiButtons('persona')}</div><div id="persOut"></div></div></div></div>`;
-    $('#brSave', body).onclick = () => { Object.assign(state.profiles[b], formData($('#brForm', body))); save(); toast('Marca salva'); App.render(); };
-    $('#brReset', body).onclick = () => { if (confirm('Restaurar os dados padrão desta marca?')) { state.profiles[b] = { ...DEFAULT_PROFILES[b] }; save(); App.render(); } };
+    $('#brSave', body).onclick = () => { Object.assign(state.profiles[b], formData($('#brForm', body))); save(); App.render(); modal({ title: 'Marca salva ✅', body: '<p>Os dados de <strong>' + esc(profile(b).name) + '</strong> foram atualizados. Legendas, roteiros, prompts e anúncios já vão usar essas informações.</p>' }); };
+    $('#brReset', body).onclick = () => confirmBox('Restaurar os dados padrão desta marca? O que você preencheu será substituído.', () => { state.profiles[b] = { ...DEFAULT_PROFILES[b] }; save(); App.render(); }, { yes: 'Restaurar', danger: true });
     wireAI(body, () => tpl(PROMPTS.find(x => x.n.startsWith('Análise de persona')).p, brandVars(b)), t => { $('#persOut', body).innerHTML = `<div class="out mt">${esc(t)}</div>`; });
   },
 });
@@ -274,7 +284,7 @@ view('backup', {
       <h3>${ico('trash-2')}Apagar tudo</h3><p class="small muted">Remove todos os dados deste navegador.</p><button class="btn danger" id="bReset">Apagar todos os dados</button></div></div>
       <div class="tip warn mt">⚠️ Os dados ficam salvos no navegador deste computador. Se limpar o histórico/cache do navegador, eles podem ser perdidos — por isso a rotina mensal inclui “Backup dos dados”.</div>`;
     $('#bExp', el).onclick = () => { const s = JSON.parse(JSON.stringify(state)); if ($('#noSecrets', el).checked) { Object.values(s.ig || {}).forEach(c => delete c.token); if (s.settings) delete s.settings.aiKey; } download(`backup-central-marketing-${today()}.json`, JSON.stringify(s, null, 1)); };
-    $('#bFile', el).onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { try { const s = JSON.parse(r.result); if (!s.col) throw new Error('arquivo inválido'); if (confirm('Substituir todos os dados atuais por este backup?')) { localStorage.setItem(APP_KEY, JSON.stringify(s)); location.reload(); } } catch (err) { toast('Erro: ' + err.message); } }; r.readAsText(f); };
-    $('#bReset', el).onclick = () => { if (confirm('Apagar TODOS os dados? Isso não pode ser desfeito.') && confirm('Tem certeza absoluta?')) { localStorage.removeItem(APP_KEY); location.reload(); } };
+    $('#bFile', el).onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { try { const s = JSON.parse(r.result); if (!s.col) throw new Error('arquivo inválido'); confirmBox('Substituir todos os dados atuais por este backup?', () => { localStorage.setItem(APP_KEY, JSON.stringify(s)); location.reload(); }, { yes: 'Restaurar backup', danger: true }); } catch (err) { toast('Erro: ' + err.message); } }; r.readAsText(f); };
+    $('#bReset', el).onclick = () => confirmBox('Apagar <strong>TODOS</strong> os dados deste navegador? Isso não pode ser desfeito. Faça um backup antes.', () => setTimeout(() => confirmBox('Tem certeza absoluta?', () => { localStorage.removeItem(APP_KEY); location.reload(); }, { yes: 'Sim, apagar tudo', danger: true }), 50), { yes: 'Apagar tudo', danger: true });
   },
 });

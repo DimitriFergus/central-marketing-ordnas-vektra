@@ -150,7 +150,7 @@ function planGenerator(y, m) {
           DB.add('posts', { brand: br, date: k, time: d.time, title: x.pauta, format: 'Carrossel', pillar: pil[0], objective: 'autoridade', status: 'ideia', notes: 'Data: ' + x.t }); count++;
         });
       });
-      toast(`${count} posts criados no calendário`); App.render();
+      App.render(); modal({ title: 'Plano do mês criado ✅', body: `<p><strong>${count} posts</strong> foram criados como <em>Ideia</em> em ${MONTHS[m]} ${y}.</p><p class="small muted">Clique em cada post no calendário para ajustar tema, roteiro e legenda, ou acompanhe em Produção.</p>`, extraBtns: `<a class="btn" href="#/production">Abrir Produção</a>` });
     },
   });
 }
@@ -186,27 +186,38 @@ view('production', {
 });
 
 /* ---------- Banco de ideias ---------- */
+function editIdea(i = {}) {
+  const isNew = !i.id;
+  modal({ title: isNew ? 'Nova ideia' : 'Editar ideia', saveLabel: isNew ? 'Adicionar ideia' : 'Salvar',
+    body: `${F.text('title', 'Ideia', i.title, 'placeholder="Ex.: vídeo respondendo “MEI pode ter sócio?”"')}
+      <div class="form-row">${F.select('format', 'Formato', FORMATS, i.format || 'Reels')}${F.select('prio', 'Prioridade', [['3', 'Alta'], ['2', 'Média'], ['1', 'Baixa']], String(i.prio || 2))}${F.select('pillar', 'Pilar', ['', ...allPillars()], i.pillar)}</div>
+      ${F.brand(i.brand)}${F.area('notes', 'Observações / referência', i.notes, 3)}`,
+    onSave: d => { if (!d.title.trim()) { toast('Escreva a ideia'); return false; } d.prio = +d.prio; if (isNew) DB.add('ideas', d); else DB.update('ideas', i.id, d); toast(isNew ? 'Ideia adicionada' : 'Ideia atualizada'); App.render(); },
+    onDelete: isNew ? null : () => { DB.remove('ideas', i.id); App.render(); } });
+}
+function suggestIdeasModal() {
+  const b = genBrand(), sug = shuffle(TOPICS).slice(0, 12).map(t => ({ ...t, t: tpl(t.t, brandVars(b)) }));
+  modal({ title: 'Sugestões de ideias', size: 'wide', saveLabel: 'Adicionar selecionadas',
+    body: `<p class="small muted" style="margin-top:0">Marque as ideias que quer guardar no banco.</p>${sug.map((t, k) => `<label class="chk" style="padding:7px 0;border-bottom:1px solid var(--line)"><input type="checkbox" name="s${k}" checked> <span><strong>${esc(t.t)}</strong> <span class="badge" style="color:${FORMAT_COLORS[t.f]}">${t.f}</span> <span class="badge">${esc(t.p)}</span></span></label>`).join('')}`,
+    onSave: d => { let n = 0; sug.forEach((t, k) => { if (d['s' + k]) { DB.add('ideas', { title: t.t, format: t.f, prio: 2, pillar: t.p, brand: b }); n++; } }); toast(`${n} ideia(s) adicionada(s)`); App.render(); } });
+}
 view('ideas', {
   title: 'Banco de ideias', icon: 'lightbulb', sub: 'Capture tudo — nunca fique sem pauta',
   render(el) {
     const q = (state.ui.ideaQ || '').toLowerCase();
     const ideas = DB.all('ideas').filter(i => !q || (i.title + ' ' + (i.notes || '')).toLowerCase().includes(q)).sort((a, b) => (b.prio || 0) - (a.prio || 0));
-    el.innerHTML = `<div class="card mb"><form class="row" id="ideaForm"><input name="title" placeholder="Digite uma ideia e pressione Enter… (ex.: vídeo respondendo 'MEI pode ter sócio?')" style="flex:1;min-width:240px">
-      <select name="format" style="width:auto">${FORMATS.map(f => `<option>${f}</option>`).join('')}</select>
-      <select name="prio" style="width:auto"><option value="2">Prioridade média</option><option value="3">Alta</option><option value="1">Baixa</option></select>
-      <button class="btn primary">${ico('plus')}Adicionar</button>
-      <button type="button" class="btn accent" id="ideaSuggest">${ico('sparkles')}Sugerir 10 ideias</button></form></div>
-      <div class="row mb"><input id="ideaQ" placeholder="Buscar ideias…" value="${esc(state.ui.ideaQ || '')}" style="max-width:320px"><span class="muted small">${ideas.length} ideia(s)</span></div>
-      <div class="grid g3">${ideas.map(i => `<div class="card"><div class="row"><span class="badge ${i.prio == 3 ? 'bad' : i.prio == 1 ? '' : 'warn'}">${i.prio == 3 ? 'Alta' : i.prio == 1 ? 'Baixa' : 'Média'}</span><span class="badge" style="color:${FORMAT_COLORS[i.format]}">${esc(i.format)}</span>${state.brand === 'all' ? brandBadge(i.brand) : ''}<span class="sp"></span><button class="icon-btn" style="width:28px;height:28px" data-del="${i.id}">${ico('x')}</button></div>
+    el.innerHTML = `<div class="row mb"><input id="ideaQ" placeholder="Buscar ideias…" value="${esc(state.ui.ideaQ || '')}" style="max-width:320px"><span class="muted small">${ideas.length} ideia(s)</span><span class="sp"></span>
+      <button class="btn accent" id="ideaSuggest">${ico('sparkles')}Sugerir ideias</button><button class="btn primary" id="ideaNew">${ico('plus')}Nova ideia</button></div>
+      <div class="grid g3">${ideas.map(i => `<div class="card"><div class="row"><span class="badge ${i.prio == 3 ? 'bad' : i.prio == 1 ? '' : 'warn'}">${i.prio == 3 ? 'Alta' : i.prio == 1 ? 'Baixa' : 'Média'}</span><span class="badge" style="color:${FORMAT_COLORS[i.format]}">${esc(i.format)}</span>${state.brand === 'all' ? brandBadge(i.brand) : ''}<span class="sp"></span><button class="icon-btn" style="width:28px;height:28px" data-edit="${i.id}" title="Editar">${ico('pencil')}</button></div>
         <div class="t mt-s" style="font-weight:600">${esc(i.title)}</div>${i.notes ? `<div class="muted small mt-s">${esc(i.notes)}</div>` : ''}
-        <div class="row mt"><button class="btn xs" data-topost="${i.id}">${ico('calendar-plus')}Agendar</button><button class="btn xs" data-toscript="${i.id}">${ico('clapperboard')}Roteiro</button><button class="btn xs" data-tocap="${i.id}">${ico('type')}Legenda</button></div></div>`).join('') || `<div class="card" style="grid-column:1/-1">${emptyState('Nenhuma ideia ainda. Adicione acima ou clique em “Sugerir 10 ideias”.', 'lightbulb')}</div>`}</div>`;
-    $('#ideaForm', el).onsubmit = e => { e.preventDefault(); const d = formData(e.target); if (!d.title.trim()) return; DB.add('ideas', { ...d, prio: +d.prio }); App.render(); setTimeout(() => $('#ideaForm input')?.focus(), 30); };
-    $('#ideaSuggest', el).onclick = () => { shuffle(TOPICS).slice(0, 10).forEach(t => DB.add('ideas', { title: tpl(t.t, brandVars(genBrand())), format: t.f, prio: 2, notes: 'Pilar: ' + t.p, brand: genBrand() })); toast('10 ideias adicionadas'); App.render(); };
+        <div class="row mt"><button class="btn xs" data-topost="${i.id}">${ico('calendar-plus')}Agendar</button><button class="btn xs" data-toscript="${i.id}">${ico('clapperboard')}Roteiro</button><button class="btn xs" data-tocap="${i.id}">${ico('type')}Legenda</button></div></div>`).join('') || `<div class="card" style="grid-column:1/-1">${emptyState('Nenhuma ideia ainda. Clique em “Nova ideia” ou “Sugerir ideias”.', 'lightbulb')}</div>`}</div>`;
+    $('#ideaNew', el).onclick = () => editIdea();
+    $('#ideaSuggest', el).onclick = suggestIdeasModal;
     $('#ideaQ', el).oninput = e => { state.ui.ideaQ = e.target.value; clearTimeout(window._iq); window._iq = setTimeout(() => { App.render(); const i = $('#ideaQ'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 300); };
-    $$('[data-del]', el).forEach(b => b.onclick = () => { DB.remove('ideas', b.dataset.del); App.render(); });
-    $$('[data-topost]', el).forEach(b => b.onclick = () => { const i = DB.get('ideas', b.dataset.topost); editPost({ title: i.title, format: i.format, brand: i.brand, notes: i.notes }); });
-    $$('[data-toscript]', el).forEach(b => b.onclick = () => { state.ui.prefill = DB.get('ideas', b.dataset.toscript).title; location.hash = '#/scripts'; });
-    $$('[data-tocap]', el).forEach(b => b.onclick = () => { state.ui.prefill = DB.get('ideas', b.dataset.tocap).title; location.hash = '#/captions'; });
+    $$('[data-edit]', el).forEach(b => b.onclick = () => editIdea(DB.get('ideas', b.dataset.edit)));
+    $$('[data-topost]', el).forEach(b => b.onclick = () => { const i = DB.get('ideas', b.dataset.topost); editPost({ title: i.title, format: i.format, brand: i.brand, pillar: i.pillar, notes: i.notes }); });
+    $$('[data-toscript]', el).forEach(b => b.onclick = () => openScriptGenerator(DB.get('ideas', b.dataset.toscript).title));
+    $$('[data-tocap]', el).forEach(b => b.onclick = () => openCaptionGenerator(DB.get('ideas', b.dataset.tocap).title));
   },
 });
 

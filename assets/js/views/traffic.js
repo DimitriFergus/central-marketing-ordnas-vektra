@@ -93,7 +93,7 @@ view('instagram', {
         <form id="igForm">${F.area('token', 'Token de acesso (Meta Graph API)', c.token || '', 3, 'placeholder="EAAG..."')}
         <div class="form-row">${F.text('igId', 'ID da conta Instagram Business', c.igId || '')}${F.text('version', 'Versão da API', c.version || 'v24.0')}</div></form>
         <div class="row"><button class="btn" id="igAcc">${ico('search')}Buscar minhas contas</button><button class="btn primary" id="igSync">${ico('refresh-cw')}Salvar e sincronizar</button>${c.token ? `<button class="btn danger" id="igOff">Desconectar</button>` : ''}</div>
-        <div id="igMsg" class="mt small"></div>
+        
         <p class="muted small mt">🔒 O token fica salvo apenas neste navegador, no seu computador. Nada é enviado para outro servidor além da própria Meta.</p></div>
         <div class="card"><h3>${ico('book-open')}Como conseguir o token (5 minutos)</h3><div class="steps small">
           <div class="step">A conta do Instagram precisa ser <strong>Profissional (Empresa ou Criador)</strong> e estar vinculada a uma <strong>Página do Facebook</strong>.</div>
@@ -103,35 +103,40 @@ view('instagram', {
           <div class="step">Para durar ~60 dias, use o <a href="https://developers.facebook.com/tools/debug/accesstoken" target="_blank">Depurador de token</a> → <strong>Extend Access Token</strong>.</div>
           <div class="step">Cole aqui, clique em <strong>Buscar minhas contas</strong>, escolha a conta e sincronize.</div></div>
           <div class="tip warn small">Sem token? Use a aba <strong>Lançar métricas manualmente</strong> — a análise funciona igual.</div></div></div>`;
-      const msg = t => { $('#igMsg', body).innerHTML = t; };
       const keep = () => { Object.assign(c, formData($('#igForm', body))); c.token = c.token.trim(); save(); };
       $('#igAcc', body).onclick = async () => {
-        keep(); if (!c.token) return msg('<span class="down">Cole o token primeiro.</span>');
-        msg('Buscando contas…');
+        keep(); if (!c.token) { modal({ title: 'Falta o token', body: '<div class="tip warn">Cole o token de acesso da Meta no campo “Token de acesso” e tente de novo.</div>' }); return; }
+        const w = modal({ title: 'Escolha a conta do Instagram', body: `<div id="accList" class="empty">${ico('loader')}Buscando suas contas na Meta…</div>` });
         try {
           const r = await igFetch(b, 'me/accounts', { fields: 'name,instagram_business_account{id,username,followers_count}' });
           const accs = (r.data || []).filter(p => p.instagram_business_account);
-          if (!accs.length) return msg('<span class="down">Nenhuma conta do Instagram Business vinculada às suas páginas.</span>');
-          msg(accs.map(p => `<div class="li"><div class="grow"><strong>@${esc(p.instagram_business_account.username)}</strong> <span class="muted">(${esc(p.name)})</span></div><button class="btn xs primary" data-pick="${p.instagram_business_account.id}">Usar esta</button></div>`).join(''));
-          $$('[data-pick]', body).forEach(x => x.onclick = () => { $('[name=igId]', body).value = x.dataset.pick; keep(); toast('Conta selecionada. Agora sincronize.'); });
-        } catch (e) { msg(`<span class="down">Erro: ${esc(e.message)}</span>`); }
+          const box = $('#accList', w.el); box.className = 'list';
+          if (!accs.length) { box.innerHTML = '<div class="tip warn">Nenhuma conta do Instagram Business vinculada às suas páginas. Confira se o Instagram é Profissional e está ligado a uma Página do Facebook.</div>'; return; }
+          box.innerHTML = accs.map(p => `<div class="li"><div class="grow"><strong>@${esc(p.instagram_business_account.username)}</strong> <span class="muted">(${esc(p.name)}) · ${fmt.num(p.instagram_business_account.followers_count)} seguidores</span></div><button type="button" class="btn xs primary" data-pick="${p.instagram_business_account.id}">Usar esta</button></div>`).join('');
+          $$('[data-pick]', w.el).forEach(x => x.onclick = () => { $('[name=igId]', body).value = x.dataset.pick; keep(); w.close(); toast('Conta selecionada. Agora clique em “Salvar e sincronizar”.'); });
+        } catch (e) { $('#accList', w.el).outerHTML = `<div class="tip warn">Erro da Meta: ${esc(e.message)}</div>`; }
       };
       $('#igSync', body).onclick = async () => {
-        keep(); if (!c.token || !c.igId) return msg('<span class="down">Informe o token e o ID da conta.</span>');
-        try { const n = await igSync(b, t => msg(t)); toast(`${n} publicações sincronizadas`); state.ui.igTab = 'an'; App.render(); }
-        catch (e) { msg(`<span class="down">Erro: ${esc(e.message)}</span>`); }
+        keep(); if (!c.token || !c.igId) { modal({ title: 'Faltam dados', body: '<div class="tip warn">Informe o token e o ID da conta (use “Buscar minhas contas”).</div>' }); return; }
+        const w = modal({ title: 'Sincronizando Instagram', body: `<div class="empty">${ico('loader')}<div id="syncMsg">Conectando…</div></div>` });
+        try { const n = await igSync(b, t => { const m = $('#syncMsg', w.el); if (m) m.textContent = t; }); w.close(); state.ui.igTab = 'an'; App.render(); modal({ title: 'Instagram sincronizado ✅', body: `<p>${n} publicações de <strong>@${esc(c.profile.username)}</strong> foram analisadas. Veja as recomendações na aba “Análise & recomendações”.</p>` }); }
+        catch (e) { w.close(); modal({ title: 'Não foi possível sincronizar', body: `<div class="tip warn">${esc(e.message)}</div><p class="small muted">Tokens expiram: gere um novo e use “Extend Access Token” para durar 60 dias.</p>` }); }
       };
-      const off = $('#igOff', body); if (off) off.onclick = () => { if (confirm('Desconectar e apagar o token?')) { state.ig[b] = { version: c.version }; save(); App.render(); } };
+      const off = $('#igOff', body); if (off) off.onclick = () => confirmBox('Desconectar o Instagram e apagar o token deste navegador?', () => { state.ig[b] = { version: c.version }; save(); App.render(); }, { danger: true, yes: 'Desconectar' });
       return;
     }
 
     if (tb.cur === 'manual') {
-      body.innerHTML = `<div class="card mb"><h3>${ico('plus-circle')}Registrar desempenho de um post</h3><form id="mForm"><div class="form-row">${F.date('date', 'Data', today())}${F.num('hour', 'Hora (0-23)', 12)}${F.select('format', 'Formato', FORMATS.slice(0, 4))}${F.text('caption', 'Tema / início da legenda')}</div>
-        <div class="form-row">${F.num('reach', 'Alcance')}${F.num('likes', 'Curtidas')}${F.num('comments', 'Comentários')}${F.num('saves', 'Salvamentos')}${F.num('shares', 'Compartilhamentos')}</div><button class="btn primary">${ico('plus')}Adicionar</button></form></div>
+      body.innerHTML = `<div class="row mb"><span class="muted small">Sem conexão com a Meta? Lance os números de cada post e a análise funciona igual.</span><span class="sp"></span><button class="btn primary" id="mNewIg">${ico('plus')}Registrar post</button></div>
         <div class="card"><h3>${ico('table')}Posts registrados (${posts.length})</h3><div class="table-wrap"><table class="table"><thead><tr><th>Data</th><th>Formato</th><th>Tema</th><th>Alcance</th><th>Curt.</th><th>Com.</th><th>Salv.</th><th>Comp.</th><th>Eng.</th><th></th></tr></thead><tbody>
-        ${posts.map(p => `<tr><td>${fmt.date(p.date)}</td><td>${esc(p.format)}</td><td>${esc((p.caption || '').slice(0, 50))}</td><td>${fmt.num(p.reach)}</td><td>${fmt.num(p.likes)}</td><td>${fmt.num(p.comments)}</td><td>${fmt.num(p.saves)}</td><td>${fmt.num(p.shares)}</td><td>${fmt.pct(engRate(p, c.profile?.followers_count))}</td><td>${p.source === 'api' ? '<span class="badge info">API</span>' : `<button class="btn xs danger" data-rm="${p.id}">${ico('x')}</button>`}</td></tr>`).join('') || '<tr><td colspan="10" class="muted">Nenhum post registrado.</td></tr>'}</tbody></table></div></div>`;
-      $('#mForm', body).onsubmit = e => { e.preventDefault(); DB.add('igposts', { ...formData(e.target), brand: b, source: 'manual' }); toast('Post registrado'); App.render(); };
-      $$('[data-rm]', body).forEach(x => x.onclick = () => { DB.remove('igposts', x.dataset.rm); App.render(); });
+        ${posts.map(p => `<tr><td>${fmt.date(p.date)}</td><td>${esc(p.format)}</td><td>${esc((p.caption || '').slice(0, 50))}</td><td>${fmt.num(p.reach)}</td><td>${fmt.num(p.likes)}</td><td>${fmt.num(p.comments)}</td><td>${fmt.num(p.saves)}</td><td>${fmt.num(p.shares)}</td><td>${fmt.pct(engRate(p, c.profile?.followers_count))}</td><td>${p.source === 'api' ? '<span class="badge info">API</span>' : `<button class="btn xs" data-edig="${p.id}">${ico('pencil')}</button>`}</td></tr>`).join('') || '<tr><td colspan="10" class="muted">Nenhum post registrado.</td></tr>'}</tbody></table></div></div>`;
+      const editIg = (p = {}) => modal({ title: p.id ? 'Editar métricas do post' : 'Registrar desempenho de um post', size: 'wide', saveLabel: p.id ? 'Salvar' : 'Registrar',
+        body: `<div class="form-row">${F.date('date', 'Data', p.date || today())}${F.num('hour', 'Hora (0-23)', p.hour ?? 12)}${F.select('format', 'Formato', FORMATS.slice(0, 4), p.format)}</div>${F.text('caption', 'Tema / início da legenda', p.caption)}
+          <div class="form-row">${F.num('reach', 'Alcance', p.reach)}${F.num('likes', 'Curtidas', p.likes)}${F.num('comments', 'Comentários', p.comments)}${F.num('saves', 'Salvamentos', p.saves)}${F.num('shares', 'Compartilhamentos', p.shares)}</div>`,
+        onSave: d => { if (p.id) DB.update('igposts', p.id, d); else DB.add('igposts', { ...d, brand: b, source: 'manual' }); toast('Métricas registradas'); App.render(); },
+        onDelete: p.id ? () => { DB.remove('igposts', p.id); App.render(); } : null });
+      $('#mNewIg', body).onclick = () => editIg();
+      $$('[data-edig]', body).forEach(x => x.onclick = () => editIg(DB.get('igposts', x.dataset.edig)));
       return;
     }
 
@@ -193,7 +198,7 @@ view('ads', {
     body.innerHTML = `<div class="grid g-side-l"><div class="card" style="align-self:start"><form id="adsForm">${genBrandPicker()}
       ${F.select('obj', 'Serviço a anunciar', Object.entries(SVC_NAMES), last.obj)}${F.num('budget', 'Orçamento mensal (R$)', last.budget)}${F.num('raio', 'Raio de atuação (km) — 0 = Brasil todo', last.raio)}
       ${F.check('site', 'Tenho site / landing page', last.site)}${F.check('pixel', 'Tenho Pixel/Conversions API instalado', last.pixel)}
-      <button class="btn primary mt" style="width:100%;justify-content:center">${ico('wand-2')}Montar plano</button></form></div><div id="adsOut">${emptyState('Escolha o serviço e o orçamento para receber o plano completo de campanha.', 'megaphone')}</div></div>`;
+      <button class="btn primary mt" style="width:100%;justify-content:center">${ico('wand-2')}Montar plano</button></form></div><div class="card" style="align-self:start">${emptyState('Escolha o serviço e o orçamento e clique em “Montar plano”. O plano completo de campanha abre numa janela.', 'megaphone')}</div></div>`;
     const gen = () => {
       const d = formData($('#adsForm', body)); d.brand = genBrand(); state.ui.lastAds = d; save();
       const v = brandVars(d.brand), B = num(d.budget), city = profile(d.brand).city || 'sua cidade';
@@ -203,7 +208,8 @@ view('ads', {
       const kws = ADS_KW[d.obj].map(k => tpl(k, { cidade: city.toLowerCase() }));
       const angles = ADS_ANGLES[d.obj];
       const expLeads = B / BENCH.meta_msg.cpl[1];
-      $('#adsOut', body).innerHTML = `
+      const host = modal({ title: 'Plano de campanha — ' + SVC_NAMES[d.obj] + ' (' + fmt.money(B) + '/mês)', size: 'xl', body: '<div id="adsOut"></div>', extraBtns: `<button type="button" class="btn" onclick="window.print()">${ico('printer')}Imprimir</button>` }).el;
+      $('#adsOut', host).innerHTML = `
         <div class="card"><h3>${ico('pie-chart')}1. Divisão do orçamento (${fmt.money(B)}/mês)</h3>${hbars([{ label: 'Meta — Mensagens', value: B * split.meta / 100, color: '#2563eb' }, { label: 'Google Pesquisa', value: B * split.google / 100, color: '#16a34a' }, { label: 'Remarketing', value: B * split.remk / 100, color: '#ea580c' }].filter(x => x.value), { money: true })}
           <p class="small">Diário: Meta ${daily(split.meta)}${split.google ? ` · Google ${daily(split.google)}` : ''}${split.remk ? ` · Remarketing ${daily(split.remk)}` : ''}. ${B < 900 ? '<strong>Com menos de R$ 900/mês, concentre tudo em uma campanha de Mensagens na Meta</strong> — dividir verba muito pequena impede o algoritmo de aprender.' : ''}${!d.site ? ' Sem site, priorize Meta com destino WhatsApp.' : ''}</p>
           <div class="tip small">Estimativa realista: ~${fmt.num(expLeads)} conversas/mês (CPL ≈ ${fmt.money(BENCH.meta_msg.cpl[1])}). Valores de referência do mercado contábil — seus números reais vão calibrar isso em 2-3 semanas.</div></div>
@@ -232,13 +238,12 @@ view('ads', {
           <tr><td>2</td><td>Pausar o pior criativo, criar 1 variação do melhor (novo gancho).</td></tr>
           <tr><td>3</td><td>Testar oferta diferente (diagnóstico grátis x conteúdo grátis).</td></tr>
           <tr><td>4</td><td>Escalar o vencedor +20% e montar remarketing com prova social.</td></tr></table></div>`;
-      $$('[data-copy]', body).forEach(x => x.onclick = () => copy(x.dataset.copy));
-      const ck = $('#cpKw', body); if (ck) ck.onclick = () => copy(kws.map(k => `"${k}"`).join('\n') + '\n\nNegativas:\n' + ADS_NEG.map(k => '-' + k).join('\n'));
-      wireAI(body, () => tpl(PROMPTS.find(p => p.n === 'Copy de anúncio Meta Ads').p, { ...v, cidade: city }) + `\nServiço anunciado: ${SVC_NAMES[d.obj]}.`, t => { $('#adsAI', body).innerHTML = `<div class="out mt">${esc(t)}</div>`; });
+      $$('[data-copy]', host).forEach(x => x.onclick = () => copy(x.dataset.copy));
+      const ck = $('#cpKw', host); if (ck) ck.onclick = () => copy(kws.map(k => `"${k}"`).join('\n') + '\n\nNegativas:\n' + ADS_NEG.map(k => '-' + k).join('\n'));
+      wireAI(host, () => tpl(PROMPTS.find(p => p.n === 'Copy de anúncio Meta Ads').p, { ...v, cidade: city }) + `\nServiço anunciado: ${SVC_NAMES[d.obj]}.`);
       icons();
     };
     $('#adsForm', body).onsubmit = e => { e.preventDefault(); gen(); };
-    gen();
   },
 });
 
@@ -246,14 +251,14 @@ function renderAdsDiag(body) {
   const d0 = state.ui.lastDiag || { spend: 1500, impr: 60000, clicks: 900, leads: 80, meetings: 20, clients: 5, ticket: 450 };
   body.innerHTML = `<div class="grid g-side-l"><div class="card" style="align-self:start"><h3>${ico('stethoscope')}Números da campanha</h3><form id="dgForm">
     ${F.num('spend', 'Valor gasto (R$)', d0.spend)}${F.num('impr', 'Impressões', d0.impr)}${F.num('clicks', 'Cliques no link', d0.clicks)}${F.num('leads', 'Leads / conversas', d0.leads)}${F.num('meetings', 'Reuniões / diagnósticos', d0.meetings)}${F.num('clients', 'Clientes fechados', d0.clients)}${F.num('ticket', 'Honorário mensal médio (R$)', d0.ticket)}
-    <button class="btn primary" style="width:100%;justify-content:center">${ico('activity')}Diagnosticar</button></form></div><div id="dgOut"></div></div>`;
+    <button class="btn primary" style="width:100%;justify-content:center">${ico('activity')}Diagnosticar</button></form></div><div class="card" style="align-self:start">${emptyState('Preencha os números da campanha e clique em “Diagnosticar”. O resultado abre numa janela com o que melhorar em cada etapa.', 'stethoscope')}</div></div>`;
   const run = () => {
     const d = formData($('#dgForm', body)); state.ui.lastDiag = d; save();
     const ctr = d.impr ? d.clicks / d.impr * 100 : 0, cpm = d.impr ? d.spend / d.impr * 1000 : 0, cpc = d.clicks ? d.spend / d.clicks : 0, cpl = d.leads ? d.spend / d.leads : 0;
     const lr = d.clicks ? d.leads / d.clicks * 100 : 0, mr = d.leads ? d.meetings / d.leads * 100 : 0, cr = d.meetings ? d.clients / d.meetings * 100 : 0, cac = d.clients ? d.spend / d.clients : 0;
     const ltv = d.ticket * 24, roas = d.spend ? d.clients * d.ticket * 12 / d.spend : 0;
     const row = (n, [v, shown], ok, warn, tip, inv) => { const good = inv ? v <= ok : v >= ok, mid = inv ? v <= warn : v >= warn; const c = good ? 'ok' : mid ? 'warn' : 'bad'; return `<tr><td><strong>${n}</strong></td><td>${shown}</td><td><span class="badge ${c}">${good ? 'Bom' : mid ? 'Atenção' : 'Ruim'}</span></td><td class="small muted">${good ? '—' : tip}</td></tr>`; };
-    $('#dgOut', body).innerHTML = `<div class="card"><h3>${ico('clipboard-check')}Resultado do diagnóstico</h3><div class="table-wrap"><table class="table"><thead><tr><th>Métrica</th><th>Valor</th><th>Status</th><th>O que fazer</th></tr></thead><tbody>
+    modal({ title: 'Resultado do diagnóstico', size: 'xl', body: `<div><div class="table-wrap"><table class="table"><thead><tr><th>Métrica</th><th>Valor</th><th>Status</th><th>O que fazer</th></tr></thead><tbody>
       ${row('CTR', [ctr, fmt.pct(ctr, 2)], 1.5, 0.8, 'Criativo não chama atenção: teste novos ganchos nos 3 primeiros segundos e capas com texto grande.')}
       ${row('CPM', [cpm, fmt.money(cpm)], 25, 45, 'Público pequeno ou muito disputado: amplie o público ou o raio.', true)}
       ${row('CPC', [cpc, fmt.money(cpc)], 2.5, 5, 'Melhore o CTR ou teste o posicionamento Reels/Stories.', true)}
@@ -263,11 +268,10 @@ function renderAdsDiag(body) {
       ${row('Reunião → cliente', [cr, fmt.pct(cr)], 30, 15, 'Proposta fraca: mostre economia em R$, casos e envie proposta em até 24h.')}
       ${row('CAC', [cac || Infinity, cac ? fmt.money(cac) : '—'], ltv / 5, ltv / 3, 'CAC alto em relação ao LTV: ataque a etapa com pior conversão acima.', true)}
       </tbody></table></div>
-      <div class="grid g3 mt"><div>${kpi('wallet', 'CAC', cac ? fmt.money(cac) : '—', `LTV estimado ${fmt.money(ltv)} (24 meses)`)}</div><div>${kpi('scale', 'LTV / CAC', cac ? fmt.num(ltv / cac, 1) + 'x' : '—', 'Ideal: acima de 3x')}</div><div>${kpi('trending-up', 'Retorno em 12 meses', fmt.num(roas, 1) + 'x', 'receita de 12 meses ÷ investimento')}</div></div></div>`;
+      <div class="grid g3 mt"><div>${kpi('wallet', 'CAC', cac ? fmt.money(cac) : '—', `LTV estimado ${fmt.money(ltv)} (24 meses)`)}</div><div>${kpi('scale', 'LTV / CAC', cac ? fmt.num(ltv / cac, 1) + 'x' : '—', 'Ideal: acima de 3x')}</div><div>${kpi('trending-up', 'Retorno em 12 meses', fmt.num(roas, 1) + 'x', 'receita de 12 meses ÷ investimento')}</div></div></div>` });
     icons();
   };
   $('#dgForm', body).onsubmit = e => { e.preventDefault(); run(); };
-  run();
 }
 
 function renderBoost(body) {
@@ -304,7 +308,7 @@ view('budget', {
       ${F.select('mix', 'Mix de canais', Object.entries(MIX_PRESETS).map(([k, v]) => [k, v.n]), d0.mix)}
       <button class="btn primary mt" style="width:100%;justify-content:center">${ico('calculator')}Calcular</button></form>
       <p class="muted small mt">Custos e conversões usam médias do mercado contábil brasileiro (${Object.values(BENCH).map(b => b.n.split('—')[0].trim()).filter((x, i, a) => a.indexOf(x) === i).join(', ')}). Depois de 1 mês, substitua pelos seus números reais em Métricas.</p></div>
-      <div id="bgOut"></div></div>`;
+      <div class="card" style="align-self:start">${emptyState('Preencha ao lado e clique em “Calcular”. O orçamento recomendado, a divisão por canal e os cenários abrem numa janela.', 'calculator')}</div></div>`;
     const mf = () => { const m = $('[name=mode]', el).value; $('#bgModeFields', el).innerHTML = m === 'meta' ? F.num('target', 'Meta de novos clientes por mês', d0.target) : F.num('have', 'Orçamento mensal disponível (R$)', d0.have); };
     $('[name=mode]', el).onchange = mf; mf();
     const run = () => {
@@ -320,7 +324,7 @@ view('budget', {
       const R = scen[1], ltv = num(d.ticket) * num(d.months), ltvM = ltv * num(d.margin) / 100;
       const payback = num(d.ticket) ? R.cac / (num(d.ticket) * num(d.margin) / 100) : 0;
       const ch = Object.entries(mix).map(([k, p]) => ({ k, label: BENCH[k].n, value: R.B * p / 100, leads: R.B * p / 100 / BENCH[k].cpl[1], p }));
-      $('#bgOut', el).innerHTML = `<div class="grid g3">
+      modal({ title: 'Orçamento recomendado', size: 'xl', body: `<div class="grid g3">
           ${kpi('wallet', d.mode === 'meta' ? 'Orçamento recomendado' : 'Orçamento', fmt.money(R.B) + '/mês', `${fmt.money(R.B / 30)} por dia`)}
           ${kpi('users', 'Novos clientes/mês', fmt.num(R.clients, 1), `${fmt.num(R.leads)} leads estimados`)}
           ${kpi('badge-dollar-sign', 'CAC estimado', fmt.money(R.cac), `LTV ${fmt.money(ltv)} · LTV/CAC ${R.cac ? fmt.num(ltv / R.cac, 1) : 0}x`)}</div>
@@ -334,11 +338,10 @@ view('budget', {
           <div class="li">🧾 Margem de LTV por cliente: ${fmt.money(ltvM)}. Você pode pagar até <strong>${fmt.money(ltvM / 3)}</strong> de CAC mantendo LTV/CAC de 3x.</div>
           <div class="li">🧪 Reserve <strong>10% a 20%</strong> do orçamento (${fmt.money(R.B * .15)}) para testar criativos e ofertas novas.</div>
           <div class="li">⚙️ Mínimos práticos: Meta ≥ R$ 20/dia por conjunto; Google ≥ R$ 30/dia por campanha. ${R.B < 600 ? 'Com esse orçamento, use uma única campanha na Meta.' : ''}</div>
-          <div class="li">🗓️ Sazonalidade: aumente 30-50% em <strong>janeiro</strong> (abertura/Simples), <strong>março-maio</strong> (IRPF) e <strong>dezembro</strong> (planejamento tributário).</div></div></div>`;
+          <div class="li">🗓️ Sazonalidade: aumente 30-50% em <strong>janeiro</strong> (abertura/Simples), <strong>março-maio</strong> (IRPF) e <strong>dezembro</strong> (planejamento tributário).</div></div></div>` });
       icons();
     };
     $('#bgForm', el).onsubmit = e => { e.preventDefault(); run(); };
-    run();
   },
 });
 
@@ -366,7 +369,9 @@ view('utm', {
     $$('input,select,textarea', el).forEach(i => i.addEventListener('input', () => { utm(); wa(); }));
     $$('[data-pre]', el).forEach(c => c.onclick = () => { const pr = UTM_PRESETS[c.dataset.pre]; $('[name=s]', el).value = pr.s; $('[name=m]', el).value = pr.m; $('[name=c]', el).value = pr.c; utm(); });
     $('#utmCopy', el).onclick = () => copy(utm());
-    $('#utmSave', el).onclick = () => { const u = utm(); if (u) { const n = prompt('Nome para este link:', 'Link ' + formData($('#utmForm', el)).s); if (n) { DB.add('links', { name: n, url: u }); App.render(); } } };
+    $('#utmSave', el).onclick = () => { const u = utm(); if (!u) { modal({ title: 'Falta o endereço', body: '<div class="tip warn">Preencha a <strong>URL de destino</strong> com um endereço completo, por exemplo: https://seusite.com.br</div>' }); return; } promptBox('Salvar link rastreável', 'Nome para este link', 'Link ' + formData($('#utmForm', el)).s, n => { DB.add('links', { name: n, url: u }); toast('Link salvo'); App.render(); }, { saveLabel: 'Salvar' }); };
+    const waSave = document.createElement('button'); waSave.className = 'btn sm'; waSave.innerHTML = `${ico('save')}Salvar`; $('#waCopy', el).after(waSave);
+    waSave.onclick = () => promptBox('Salvar link de WhatsApp', 'Nome para este link', 'WhatsApp — ' + formData($('#waForm', el)).orig, n => { DB.add('links', { name: n, url: wa() }); toast('Link salvo'); App.render(); }, { saveLabel: 'Salvar' });
     $('#waCopy', el).onclick = () => copy(wa());
     $$('[data-cp]', el).forEach(b => b.onclick = () => copy(b.dataset.cp));
     $$('[data-rm]', el).forEach(b => b.onclick = () => { DB.remove('links', b.dataset.rm); App.render(); });

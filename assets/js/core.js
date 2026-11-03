@@ -160,17 +160,45 @@ function modal({ title, body, onSave, saveLabel = 'Salvar', size = '', onDelete,
     <button type="button" class="btn ghost" data-close>${onSave ? 'Cancelar' : 'Fechar'}</button>${onSave ? `<button type="button" class="btn primary" data-save>${saveLabel}</button>` : ''}</div></div>`;
   document.body.appendChild(w);
   const form = $('form', w);
-  const close = () => w.remove();
-  const doSave = () => { if (onSave(formData(form), form) !== false) close(); };
+  $$('button:not([type])', form).forEach(b => b.type = 'button');
+  const esc_ = e => { if (e.key === 'Escape' && w === $$('.modal-backdrop').pop()) close(); };
+  const close = () => { w.remove(); document.removeEventListener('keydown', esc_); };
+  document.addEventListener('keydown', esc_);
+  const doSave = () => { if (onSave(formData(form), form, w) !== false) close(); };
   w.addEventListener('mousedown', e => { if (e.target === w) close(); });
   $$('[data-close]', w).forEach(b => b.onclick = close);
   if (onSave) $('[data-save]', w).onclick = doSave;
   form.addEventListener('submit', e => { e.preventDefault(); if (onSave) doSave(); });
-  if (onDelete) $('[data-del]', w).onclick = () => { if (confirm('Tem certeza que deseja excluir?')) { onDelete(); close(); } };
+  if (onDelete) $('[data-del]', w).onclick = () => confirmBox('Tem certeza que deseja excluir? Esta ação não pode ser desfeita.', () => { onDelete(); close(); }, { danger: true, yes: 'Excluir' });
   icons();
-  const first = $('input:not([type=hidden]),textarea,select', form); if (first) setTimeout(() => first.focus(), 50);
-  if (onOpen) onOpen(form, w);
+  const first = $('input:not([type=hidden]),textarea,select', form); if (first && !onOpen?.noFocus) setTimeout(() => first.focus(), 50);
+  if (onOpen) onOpen(form, w, close);
   return { el: w, form, close };
+}
+/* Links internos dentro de uma janela fecham a janela ao navegar */
+document.addEventListener('click', e => { const a = e.target.closest('.modal-backdrop a[href^="#/"]'); if (a) $$('.modal-backdrop').forEach(m => m.remove()); });
+/* Janela de confirmação (substitui o confirm do navegador) */
+function confirmBox(msg, onYes, { title = 'Confirmar', yes = 'Confirmar', danger = false } = {}) {
+  const m = modal({ title, body: `<p style="margin:0">${msg}</p>`, onSave: () => { onYes(); }, saveLabel: yes });
+  if (danger) $('[data-save]', m.el).className = 'btn danger';
+  return m;
+}
+/* Janela para digitar um valor (substitui o prompt do navegador) */
+function promptBox(title, label, def, onOk, { saveLabel = 'OK', type = 'text', options } = {}) {
+  return modal({ title, saveLabel,
+    body: options ? F.select('v', label, options, def) : `<label class="field"><span>${esc(label)}</span><input name="v" type="${type}" value="${esc(def ?? '')}"></label>`,
+    onSave: d => { if (!String(d.v ?? '').trim()) { toast('Preencha o campo'); return false; } return onOk(d.v); } });
+}
+/* Janela de resultado com texto gerado + ações */
+function textModal(title, text, { use, useLabel = 'Usar este texto', save, size = 'wide' } = {}) {
+  const m = modal({ title, size, body: `<textarea id="tmText" rows="18">${esc(text)}</textarea><div class="muted small mt-s" id="tmCnt">${text.length} caracteres</div>`,
+    extraBtns: `<button type="button" class="btn" data-tm="copy">${ico('copy')}Copiar</button>${save ? `<button type="button" class="btn" data-tm="save">${ico('save')}Salvar</button>` : ''}${use ? `<button type="button" class="btn primary" data-tm="use">${ico('check')}${useLabel}</button>` : ''}` });
+  const val = () => $('#tmText', m.el).value;
+  $('#tmText', m.el).oninput = () => { $('#tmCnt', m.el).textContent = val().length + ' caracteres'; };
+  $('[data-tm=copy]', m.el).onclick = () => copy(val());
+  if (save) $('[data-tm=save]', m.el).onclick = () => { save(val()); };
+  if (use) $('[data-tm=use]', m.el).onclick = () => { use(val()); m.close(); };
+  return m;
 }
 
 /* ===== Gráficos (SVG simples, sem dependências) ===== */

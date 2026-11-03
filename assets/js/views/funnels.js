@@ -48,19 +48,33 @@ view('funnels', {
       body.innerHTML = `<div class="row mb"><span class="sp"></span><button class="btn" id="fnBlank">${ico('plus')}Funil em branco</button></div>` + (mine.length ? `<div class="grid g3">${mine.map(f => { const r = simulate(f); return `<div class="card"><div class="row">${state.brand === 'all' ? brandBadge(f.brand) : ''}<span class="badge">${f.nodes.length} etapas</span></div><h3 class="mt-s" style="margin-bottom:4px">${esc(f.name)}</h3>
         <div class="muted small">Projeção: ${fmt.num(r.clients, 1)} clientes/mês · CAC ${r.cac ? fmt.money(r.cac) : '—'}</div>
         <div class="row mt"><button class="btn xs primary" data-edit="${f.id}">${ico('pencil')}Abrir mapa</button><button class="btn xs" data-dup="${f.id}">${ico('copy')}Duplicar</button><button class="btn xs danger" data-rm="${f.id}">${ico('trash-2')}</button></div></div>`; }).join('')}</div>` : `<div class="card">${emptyState('Você ainda não tem funis. Use um modelo da biblioteca ou crie um personalizado.', 'git-fork')}</div>`);
-      $('#fnBlank', body).onclick = () => { const f = DB.add('funnels', { brand: genBrand(), name: 'Novo funil', nodes: [{ id: uid(), t: 'trafego', n: 'Entrada de tráfego', d: '', x: 60, y: 160, rate: '' }], edges: [], sim: { mode: 'cpl', cost: 15, invest: 1000, ticket: 450, months: 24, base: 0 } }); state.ui.funnelId = f.id; App.render(); };
+      $('#fnBlank', body).onclick = blankFunnelModal;
       $$('[data-edit]', body).forEach(b => b.onclick = () => { state.ui.funnelId = b.dataset.edit; App.render(); });
       $$('[data-dup]', body).forEach(b => b.onclick = () => { const f = JSON.parse(JSON.stringify(DB.get('funnels', b.dataset.dup))); delete f.id; f.name += ' (cópia)'; DB.add('funnels', f); App.render(); });
-      $$('[data-rm]', body).forEach(b => b.onclick = () => { if (confirm('Excluir este funil?')) { DB.remove('funnels', b.dataset.rm); App.render(); } });
+      $$('[data-rm]', body).forEach(b => b.onclick = () => confirmBox('Excluir este funil?', () => { DB.remove('funnels', b.dataset.rm); App.render(); }, { danger: true, yes: 'Excluir' }));
     } else renderFunnelWizard(body);
   },
 });
 
+/* Janela para criar um funil a partir de um modelo */
 function useTemplate(id, custom) {
   const t = FUNNEL_TEMPLATES.find(x => x.id === id);
-  const f = DB.add('funnels', { ...funnelFromTemplate(t, genBrand(), custom?.name), ...(custom?.patch || {}) });
-  if (custom?.apply) { custom.apply(f); save(); }
-  state.ui.funnelId = f.id; toast('Funil criado — personalize no mapa'); App.render();
+  modal({ title: 'Criar funil: ' + t.name, saveLabel: 'Criar e abrir mapa',
+    body: `<p class="small muted" style="margin-top:0">${esc(t.desc)}</p>${F.text('name', 'Nome do funil', custom?.name || t.name)}${F.brand(genBrand(), false)}
+      <div class="form-row">${t.sim.mode === 'cpl' || t.sim.mode === 'cpc' ? F.num('invest', 'Investimento mensal (R$)', custom?.invest || 1500) : ''}${F.num('ticket', 'Honorário mensal médio (R$)', custom?.ticket || 450)}</div>`,
+    onSave: d => {
+      const f = DB.add('funnels', funnelFromTemplate(t, d.brand, d.name));
+      if (d.invest) f.sim.invest = num(d.invest); if (d.ticket) f.sim.ticket = num(d.ticket);
+      if (custom?.apply) custom.apply(f);
+      save(); state.ui.funnelId = f.id; toast('Funil criado — personalize no mapa'); App.render();
+    } });
+}
+function blankFunnelModal() {
+  modal({ title: 'Novo funil em branco', saveLabel: 'Criar e abrir mapa',
+    body: `${F.text('name', 'Nome do funil', 'Meu funil')}${F.brand(genBrand(), false)}${F.select('t', 'Primeira etapa', Object.entries(NODE_TYPES).map(([k, v]) => [k, v.n]), 'trafego')}${F.text('n', 'Nome da primeira etapa', 'Entrada de tráfego')}`,
+    onSave: d => { if (!d.name.trim()) { toast('Dê um nome ao funil'); return false; }
+      const f = DB.add('funnels', { brand: d.brand, name: d.name, nodes: [{ id: uid(), t: d.t, n: d.n || NODE_TYPES[d.t].n, d: '', x: 60, y: 160, rate: '' }], edges: [], sim: { mode: 'cpl', cost: 15, invest: 1000, ticket: 450, months: 24, base: 0 } });
+      state.ui.funnelId = f.id; toast('Funil criado'); App.render(); } });
 }
 
 function funnelDetails(t) {
@@ -88,7 +102,7 @@ function renderFunnelWizard(body) {
     ${F.select('channel', 'Canal principal', [['whats', 'WhatsApp'], ['insta', 'Instagram orgânico'], ['google', 'Google'], ['mix', 'Combinação']])}
     ${F.check('team', 'Tenho alguém para atender os leads rápido (até 15 min)', true)}
     ${F.check('site', 'Tenho site / landing page', false)}
-    <button class="btn primary mt" style="width:100%;justify-content:center">${ico('sparkles')}Recomendar funis</button></form></div><div id="wzOut">${emptyState('As recomendações aparecem aqui, com o motivo de cada escolha.', 'compass')}</div></div>`;
+    <button class="btn primary mt" style="width:100%;justify-content:center">${ico('sparkles')}Recomendar funis</button></form></div><div id="wzOut">${emptyState('Responda ao lado e clique em “Recomendar funis”. As 3 melhores opções abrem numa janela, com o motivo de cada escolha.', 'compass')}</div></div>`;
   $('#wzForm', body).onsubmit = e => {
     e.preventDefault();
     const d = formData(e.target), sc = {};
@@ -112,15 +126,17 @@ function renderFunnelWizard(body) {
     if (!d.team) { add('ctwa', -3); add('leadmagnet', 2, 'automação trabalha por você enquanto não há equipe'); }
     const top = Object.entries(sc).sort((a, b) => b[1].s - a[1].s).slice(0, 3);
     const svc = { abertura: 'abertura de empresa', troca: 'troca de contador', mensal: 'contabilidade mensal', planejamento: 'planejamento tributário', irpf: 'declaração de IRPF', bpo: 'BPO financeiro', mei: 'serviços para MEI' }[d.obj];
-    $('#wzOut', body).innerHTML = top.map(([id, v], i) => { const t = FUNNEL_TEMPLATES.find(x => x.id === id); const f = funnelFromTemplate(t, genBrand()); f.sim.invest = num(d.budget) || f.sim.invest; f.sim.ticket = num(d.ticket); const r = simulate(f);
+    const rm = modal({ title: 'Funis recomendados para você', size: 'wide', body: '<div id="wzRes"></div>' });
+    const out = $('#wzRes', rm.el);
+    out.innerHTML = top.map(([id, v], i) => { const t = FUNNEL_TEMPLATES.find(x => x.id === id); const f = funnelFromTemplate(t, genBrand()); f.sim.invest = num(d.budget) || f.sim.invest; f.sim.ticket = num(d.ticket); const r = simulate(f);
       return `<div class="card ${i ? 'mt' : ''}" style="${i === 0 ? 'border-color:var(--brand)' : ''}"><div class="row">${i === 0 ? '<span class="badge ok">Melhor opção</span>' : `<span class="badge">Opção ${i + 1}</span>`}<h3 style="margin:0">${esc(t.name)}</h3></div>
         <p class="small">${esc(t.desc)}</p><p class="small"><strong>Por que:</strong> ${[...new Set(v.why)].join('; ') || 'combina com o seu perfil'}.</p>
         <p class="small muted">Projeção inicial: ≈ ${fmt.num(r.clients, 1)} clientes/mês${r.cac ? ` · CAC ${fmt.money(r.cac)}` : ''}</p>
         <button class="btn sm primary" data-mk="${id}">${ico('git-fork')}Montar este funil para ${esc(svc)}</button></div>`; }).join('');
-    $$('[data-mk]', body).forEach(b => b.onclick = () => useTemplate(b.dataset.mk, {
-      name: `${FUNNEL_TEMPLATES.find(x => x.id === b.dataset.mk).name.split('(')[0].trim()} — ${svc}`,
-      apply: f => { f.sim.invest = num(d.budget) || f.sim.invest; f.sim.ticket = num(d.ticket) || f.sim.ticket; f.nodes.forEach(n => { if (['oferta', 'trafego'].includes(n.t)) n.d = (n.d ? n.d + ' ' : '') + `Foco: ${svc}.`; }); },
-    }));
+    $$('[data-mk]', out).forEach(b => { b.type = 'button'; b.onclick = () => { rm.close(); useTemplate(b.dataset.mk, {
+      name: `${FUNNEL_TEMPLATES.find(x => x.id === b.dataset.mk).name.split('(')[0].trim()} — ${svc}`, invest: num(d.budget), ticket: num(d.ticket),
+      apply: f => { f.nodes.forEach(n => { if (['oferta', 'trafego'].includes(n.t)) n.d = (n.d ? n.d + ' ' : '') + `Foco: ${svc}.`; }); },
+    }); }; });
     icons();
   };
 }
@@ -157,7 +173,7 @@ function renderFunnelEditor(el, f) {
       const d = `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
       return `<path d="${d}" stroke="#94a3b8" stroke-width="2" fill="none" marker-end="url(#arr)"/><path d="${d}" stroke="transparent" stroke-width="14" fill="none" style="pointer-events:stroke;cursor:pointer" data-e="${i}"/>`;
     }).join('');
-    $$('[data-e]', edgesEl).forEach(p => p.addEventListener('pointerdown', e => { e.stopPropagation(); if (confirm('Remover esta conexão?')) { f.edges.splice(+p.dataset.e, 1); persist(); drawEdges(); } }));
+    $$('[data-e]', edgesEl).forEach(p => p.addEventListener('pointerdown', e => { e.stopPropagation(); confirmBox('Remover esta conexão entre as etapas?', () => { f.edges.splice(+p.dataset.e, 1); persist(); drawEdges(); }, { yes: 'Remover', danger: true }); }));
   }
   function drawNodes() {
     nodesEl.innerHTML = f.nodes.map(n => `<div class="fn-node ${selected === n.id ? 'sel' : ''} ${connectFrom === n.id ? 'connect-src' : ''}" data-n="${n.id}" style="left:${n.x}px;top:${n.y}px;--c:${NODE_TYPES[n.t]?.c || '#64748b'}">
@@ -202,10 +218,19 @@ function renderFunnelEditor(el, f) {
   $('#fnName', el).onchange = e => { f.name = e.target.value; persist(); };
   $('#fnPrint', el).onclick = () => window.print();
   $('#fnAdd', el).onclick = () => {
-    const t = $('#fnType', el).value, r = wrap.getBoundingClientRect();
-    const n = { id: uid(), t, n: NODE_TYPES[t].n, d: '', x: Math.round((r.width / 2 - vw.x) / vw.z - NODE_W / 2), y: Math.round((r.height / 2 - vw.y) / vw.z - 40), rate: '' };
-    if (selected) { const s = f.nodes.find(x => x.id === selected); if (s) { n.x = s.x + 240; n.y = s.y; f.edges.push([s.id, n.id]); } }
-    f.nodes.push(n); selected = n.id; persist(); drawNodes(); panel();
+    const t0 = $('#fnType', el).value, sel = f.nodes.find(x => x.id === selected);
+    modal({ title: 'Nova etapa do funil', saveLabel: 'Adicionar etapa',
+      body: `<div class="form-row">${F.select('t', 'Tipo', Object.entries(NODE_TYPES).map(([k, v]) => [k, v.n]), t0)}${F.text('n', 'Nome da etapa', NODE_TYPES[t0].n)}</div>${F.area('d', 'Descrição / ação', '', 3)}
+        ${F.num('rate', 'Taxa de conversão (%) — deixe vazio se não entra no simulador', '')}
+        ${F.select('from', 'Conectar a partir de', [['', '— não conectar —'], ...f.nodes.map(x => [x.id, x.n])], sel ? sel.id : (f.nodes[f.nodes.length - 1]?.id || ''))}`,
+      onOpen: fm => { $('[name=t]', fm).onchange = e => { $('[name=n]', fm).value = NODE_TYPES[e.target.value].n; }; },
+      onSave: d => {
+        if (!d.n.trim()) { toast('Dê um nome à etapa'); return false; }
+        const r = wrap.getBoundingClientRect(), src = f.nodes.find(x => x.id === d.from);
+        const n = { id: uid(), t: d.t, n: d.n, d: d.d, rate: d.rate, x: Math.round((r.width / 2 - vw.x) / vw.z - NODE_W / 2), y: Math.round((r.height / 2 - vw.y) / vw.z - 40) };
+        if (src) { n.x = src.x + 240; n.y = src.y; while (f.nodes.some(o => Math.abs(o.x - n.x) < 60 && Math.abs(o.y - n.y) < 60)) n.y += 150; f.edges.push([src.id, n.id]); }
+        f.nodes.push(n); selected = n.id; persist(); drawNodes(); panel(); sim(); toast('Etapa adicionada');
+      } });
   };
   $('#fnConnect', el).onclick = e => { connectMode = !connectMode; connectFrom = null; e.currentTarget.classList.toggle('primary', connectMode); $('#fnHint').textContent = connectMode ? 'Modo conectar: clique na etapa de origem' : 'Arraste etapas · arraste o fundo para mover · roda do mouse = zoom'; drawNodes(); };
   $('#fnLayout', el).onclick = () => {
@@ -223,7 +248,7 @@ function renderFunnelEditor(el, f) {
       ${F.num('rate', 'Taxa de conversão desta etapa (%) — vazio = fora do simulador', n.rate)}
       <div class="row"><button class="btn sm danger" id="ndDel">${ico('trash-2')}Excluir etapa</button><span class="sp"></span><button class="btn sm" id="ndDone">Fechar</button></div>`;
     $$('[name]', p).forEach(i => i.oninput = () => { const d = formData(p); Object.assign(n, d); persist(); drawNodes(); sim(); });
-    $('#ndDel', p).onclick = () => { f.nodes = f.nodes.filter(x => x.id !== n.id); f.edges = f.edges.filter(([a, b]) => a !== n.id && b !== n.id); selected = null; persist(); drawNodes(); panel(); sim(); };
+    $('#ndDel', p).onclick = () => confirmBox('Excluir a etapa “' + esc(n.n) + '”?', () => { f.nodes = f.nodes.filter(x => x.id !== n.id); f.edges = f.edges.filter(([a, b]) => a !== n.id && b !== n.id); selected = null; persist(); drawNodes(); panel(); sim(); }, { danger: true, yes: 'Excluir' });
     $('#ndDone', p).onclick = () => { selected = null; drawNodes(); panel(); };
     icons();
   }
