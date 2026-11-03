@@ -112,7 +112,7 @@ function brandVars(b, extra = {}) {
 }
 
 function toast(msg) {
-  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  const t = document.createElement('div'); t.className = 'cmk-toast'; t.textContent = msg;
   $('#toasts').appendChild(t); setTimeout(() => t.remove(), 2600);
 }
 async function copy(text) {
@@ -153,15 +153,16 @@ function formData(root) {
 
 /* ===== Modal ===== */
 function modal({ title, body, onSave, saveLabel = 'Salvar', size = '', onDelete, extraBtns = '', onOpen }) {
-  const w = document.createElement('div'); w.className = 'modal-backdrop';
-  w.innerHTML = `<div class="modal ${size}"><div class="modal-head"><h3>${esc(title)}</h3><button type="button" class="icon-btn" data-close>${ico('x')}</button></div>
-    <form class="modal-body" autocomplete="off">${body}</form>
-    <div class="modal-foot">${onDelete ? `<button type="button" class="btn danger" data-del>${ico('trash-2')}Excluir</button>` : ''}${extraBtns}<span class="sp"></span>
+  const w = document.createElement('div'); w.className = 'cmk-overlay';
+  w.innerHTML = `<div class="cmk-dialog ${size}"><div class="cmk-head"><h3>${esc(title)}</h3><button type="button" class="icon-btn" data-close>${ico('x')}</button></div>
+    <form class="cmk-body" autocomplete="off">${body}</form>
+    <div class="cmk-foot">${onDelete ? `<button type="button" class="btn danger" data-del>${ico('trash-2')}Excluir</button>` : ''}${extraBtns}<span class="sp"></span>
     <button type="button" class="btn ghost" data-close>${onSave ? 'Cancelar' : 'Fechar'}</button>${onSave ? `<button type="button" class="btn primary" data-save>${saveLabel}</button>` : ''}</div></div>`;
   document.body.appendChild(w);
+  forceVisible(w);
   const form = $('form', w);
   $$('button:not([type])', form).forEach(b => b.type = 'button');
-  const esc_ = e => { if (e.key === 'Escape' && w === $$('.modal-backdrop').pop()) close(); };
+  const esc_ = e => { if (e.key === 'Escape' && w === $$('.cmk-overlay').pop()) close(); };
   const close = () => { w.remove(); document.removeEventListener('keydown', esc_); };
   document.addEventListener('keydown', esc_);
   const doSave = () => { if (onSave(formData(form), form, w) !== false) close(); };
@@ -175,8 +176,23 @@ function modal({ title, body, onSave, saveLabel = 'Salvar', size = '', onDelete,
   if (onOpen) onOpen(form, w, close);
   return { el: w, form, close };
 }
+/* Garante que a janela apareça mesmo se algum estilo externo tentar escondê-la */
+function forceVisible(w) {
+  const dlg = w.firstElementChild;
+  const fix = () => {
+    [[w, 'grid'], [dlg, 'flex']].forEach(([el, disp]) => {
+      const cs = getComputedStyle(el);
+      if (cs.display === 'none' || cs.visibility === 'hidden' || +cs.opacity < 0.95 || el.getBoundingClientRect().height < 20) {
+        el.style.setProperty('display', disp, 'important'); el.style.setProperty('visibility', 'visible', 'important');
+        el.style.setProperty('opacity', '1', 'important'); el.style.setProperty('transform', 'none', 'important');
+      }
+    });
+    dlg.style.setProperty('z-index', '1', 'important');
+  };
+  requestAnimationFrame(fix); setTimeout(fix, 250);
+}
 /* Links internos dentro de uma janela fecham a janela ao navegar */
-document.addEventListener('click', e => { const a = e.target.closest('.modal-backdrop a[href^="#/"]'); if (a) $$('.modal-backdrop').forEach(m => m.remove()); });
+document.addEventListener('click', e => { const a = e.target.closest('.cmk-overlay a[href^="#/"]'); if (a) $$('.cmk-overlay').forEach(m => m.remove()); });
 /* Janela de confirmação (substitui o confirm do navegador) */
 function confirmBox(msg, onYes, { title = 'Confirmar', yes = 'Confirmar', danger = false } = {}) {
   const m = modal({ title, body: `<p style="margin:0">${msg}</p>`, onSave: () => { onYes(); }, saveLabel: yes });

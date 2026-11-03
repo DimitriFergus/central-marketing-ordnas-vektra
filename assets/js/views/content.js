@@ -344,7 +344,7 @@ view('prompts', {
     $$('[data-view]', el).forEach(bt => bt.onclick = () => {
       const x = list[bt.dataset.view];
       const m = textModal(x.n, tpl(x.p, vars), { use: t => runAI(t, x.n), useLabel: 'Rodar com IA aqui' });
-      if (x.id) { const eb = document.createElement('button'); eb.type = 'button'; eb.className = 'btn'; eb.textContent = 'Editar'; eb.onclick = () => { m.close(); editPrompt(DB.get('prompts', x.id)); }; $('.modal-foot', m.el).prepend(eb); }
+      if (x.id) { const eb = document.createElement('button'); eb.type = 'button'; eb.className = 'btn'; eb.textContent = 'Editar'; eb.onclick = () => { m.close(); editPrompt(DB.get('prompts', x.id)); }; $('.cmk-foot', m.el).prepend(eb); }
     });
     wireAI(el, i => tpl(list[i].p, vars));
     $('#pNew', el).onclick = () => editPrompt();
