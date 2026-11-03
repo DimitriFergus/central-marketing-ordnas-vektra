@@ -272,19 +272,3 @@ view('brand', {
   },
 });
 
-/* ---------- Backup ---------- */
-view('backup', {
-  title: 'Backup dos dados', icon: 'database', sub: 'Seus dados ficam neste navegador — faça cópias',
-  render(el) {
-    const size = (JSON.stringify(state).length / 1024).toFixed(0);
-    const counts = Object.entries(state.col).map(([k, v]) => `${k}: ${v.length}`).join(' · ');
-    el.innerHTML = `<div class="grid g2"><div class="card"><h3>${ico('download')}Exportar</h3><p class="small">Baixa um arquivo com tudo: posts, roteiros, funis, leads, métricas e configurações. Guarde no Google Drive ou OneDrive.</p>
-      ${F.check('noSecrets', 'Não incluir tokens e chaves de API', true).replace('name="noSecrets"', 'id="noSecrets"')}<button class="btn primary mt-s" id="bExp">${ico('download')}Baixar backup</button><p class="muted small mt">Tamanho atual: ${size} KB · ${counts || 'sem dados ainda'}</p></div>
-      <div class="card"><h3>${ico('upload')}Importar</h3><p class="small">Restaura um backup (substitui os dados atuais). Use também para levar os dados para outro computador.</p><input type="file" id="bFile" accept=".json"><hr>
-      <h3>${ico('trash-2')}Apagar tudo</h3><p class="small muted">Remove todos os dados deste navegador.</p><button class="btn danger" id="bReset">Apagar todos os dados</button></div></div>
-      <div class="tip warn mt">⚠️ Os dados ficam salvos no navegador deste computador. Se limpar o histórico/cache do navegador, eles podem ser perdidos — por isso a rotina mensal inclui “Backup dos dados”.</div>`;
-    $('#bExp', el).onclick = () => { const s = JSON.parse(JSON.stringify(state)); if ($('#noSecrets', el).checked) { Object.values(s.ig || {}).forEach(c => delete c.token); if (s.settings) delete s.settings.aiKey; } download(`backup-central-marketing-${today()}.json`, JSON.stringify(s, null, 1)); };
-    $('#bFile', el).onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { try { const s = JSON.parse(r.result); if (!s.col) throw new Error('arquivo inválido'); confirmBox('Substituir todos os dados atuais por este backup?', () => { localStorage.setItem(APP_KEY, JSON.stringify(s)); location.reload(); }, { yes: 'Restaurar backup', danger: true }); } catch (err) { toast('Erro: ' + err.message); } }; r.readAsText(f); };
-    $('#bReset', el).onclick = () => confirmBox('Apagar <strong>TODOS</strong> os dados deste navegador? Isso não pode ser desfeito. Faça um backup antes.', () => setTimeout(() => confirmBox('Tem certeza absoluta?', () => { localStorage.removeItem(APP_KEY); location.reload(); }, { yes: 'Sim, apagar tudo', danger: true }), 50), { yes: 'Apagar tudo', danger: true });
-  },
-});

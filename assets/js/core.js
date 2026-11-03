@@ -36,21 +36,28 @@ function defaults() {
   };
 }
 
+/* Completa um estado salvo com os campos padrão (usado ao carregar e ao restaurar) */
+function normalizeState(s) {
+  const d = defaults();
+  if (!s || typeof s !== 'object') return d;
+  s.profiles = { ordnas: { ...d.profiles.ordnas, ...(s.profiles || {}).ordnas }, vektra: { ...d.profiles.vektra, ...(s.profiles || {}).vektra } };
+  s.ig = { ...d.ig, ...(s.ig || {}) };
+  s.col = s.col && typeof s.col === 'object' ? s.col : {};
+  Object.keys(s.col).forEach(k => { if (!Array.isArray(s.col[k])) delete s.col[k]; });
+  return { ...d, ...s };
+}
 function loadState() {
-  try {
-    const raw = localStorage.getItem(APP_KEY);
-    if (raw) {
-      const s = JSON.parse(raw), d = defaults();
-      s.profiles = { ordnas: { ...d.profiles.ordnas, ...(s.profiles || {}).ordnas }, vektra: { ...d.profiles.vektra, ...(s.profiles || {}).vektra } };
-      s.ig = { ...d.ig, ...(s.ig || {}) };
-      return { ...d, ...s };
-    }
-  } catch (e) { console.error(e); }
+  try { const raw = localStorage.getItem(APP_KEY); if (raw) return normalizeState(JSON.parse(raw)); }
+  catch (e) { console.error(e); }
   return defaults();
 }
 const state = loadState();
+/* Troca todo o conteúdo do estado mantendo o mesmo objeto (as telas usam a referência) */
+function replaceState(s) { Object.keys(state).forEach(k => delete state[k]); Object.assign(state, normalizeState(s)); }
 
+/* Salvar: grava no banco local (IndexedDB) e agenda a sincronização com a nuvem */
 function save() {
+  if (typeof Store !== 'undefined' && Store.ready) return Store.persist();
   try { localStorage.setItem(APP_KEY, JSON.stringify(state)); }
   catch (e) { toast('Não foi possível salvar: armazenamento do navegador cheio. Faça um backup.'); }
 }
@@ -72,7 +79,7 @@ const DB = {
     o.id = o.id || uid(); o.brand = o.brand || curBrand(); o.createdAt = o.createdAt || new Date().toISOString();
     this.raw(c).push(o); save(); return o;
   },
-  update(c, id, p) { const o = this.get(c, id); if (o) { Object.assign(o, p); save(); } return o; },
+  update(c, id, p) { const o = this.get(c, id); if (o) { Object.assign(o, p, { updatedAt: new Date().toISOString() }); save(); } return o; },
   remove(c, id) { state.col[c] = this.raw(c).filter(x => x.id !== id); save(); },
   upsert(c, o) { return o.id && this.get(c, o.id) ? this.update(c, o.id, o) : this.add(c, o); },
 };
@@ -268,7 +275,8 @@ function view(id, def) { Views[id] = def; }
 
 const App = {
   current: 'dashboard',
-  boot() {
+  async boot() {
+    if (typeof Store !== 'undefined') { try { await Store.init(); } catch (e) { console.error('Falha ao abrir o banco local', e); } }
     this.applyTheme();
     this.buildNav();
     $$('#brandSwitch button').forEach(b => b.onclick = () => { state.brand = b.dataset.brand; save(); this.render(); });
