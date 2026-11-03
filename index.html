@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Central de Marketing — ORDNAS & VEKTRA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="logo">
+      <div class="logo-mark">M</div>
+      <div><strong>Central de Marketing</strong><small>ORDNAS · VEKTRA</small></div>
+    </div>
+    <nav id="nav"></nav>
+    <div class="sidebar-foot">
+      <a href="#/backup" class="nav-item"><i data-lucide="database"></i><span>Backup dos dados</span></a>
+    </div>
+  </aside>
+  <div class="main-wrap">
+    <header class="topbar">
+      <button class="icon-btn mobile-only" id="menuBtn" title="Menu"><i data-lucide="menu"></i></button>
+      <div class="page-title"><h1 id="pageTitle">Painel</h1><p id="pageSub"></p></div>
+      <div class="brand-switch" id="brandSwitch">
+        <button data-brand="ordnas">ORDNAS</button>
+        <button data-brand="vektra">VEKTRA</button>
+        <button data-brand="all">Ambas</button>
+      </div>
+      <button class="icon-btn" id="themeBtn" title="Tema claro/escuro"><i data-lucide="moon"></i></button>
+    </header>
+    <main id="main"></main>
+  </div>
+</div>
+<div id="toasts"></div>
+
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script src="assets/js/core.js"></script>
+<script src="assets/js/data.js"></script>
+<script src="assets/js/views/dashboard.js"></script>
+<script src="assets/js/views/planning.js"></script>
+<script src="assets/js/views/content.js"></script>
+<script src="assets/js/views/funnels.js"></script>
+<script src="assets/js/views/traffic.js"></script>
+<script src="assets/js/views/manage.js"></script>
+<script>App.boot();</script>
+</body>
+</html>
