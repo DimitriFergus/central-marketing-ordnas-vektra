@@ -13,3 +13,8 @@ Painel de gestão de marketing para as duas marcas: calendário de posts, roteir
 - `assets/js/core.js` — estado, banco local, navegação e componentes
 - `assets/js/data.js` — base de conhecimento (funis, ganchos, datas fiscais, prompts, benchmarks)
 - `assets/js/views/` — uma tela por arquivo
+
+## Site publicado
+Acesse: **https://dimitrifergus.github.io/central-marketing-ordnas-vektra/**
+
+O site é publicado automaticamente pelo GitHub Actions (`.github/workflows/pages.yml`) a cada atualização na branch `main`. Cada pessoa que abre o site usa os próprios dados, salvos no navegador dela.
